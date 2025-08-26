@@ -77,6 +77,21 @@ static retro_input_state_t input_state_cb = NULL;
 static bool libretro_supports_option_categories = false;
 static bool libretro_supports_bitmasks = false;
 
+/* S-Pen pointer support constants and variables */
+/* Settings are defined by enums below */
+
+/* S-Pen action definitions */
+#define SNES9X_SPEN_ACTION_DISABLED       0
+#define SNES9X_SPEN_ACTION_LEFT_CLICK     1
+#define SNES9X_SPEN_ACTION_RIGHT_CLICK    2
+#define SNES9X_SPEN_ACTION_MIDDLE_CLICK   3
+#define SNES9X_SPEN_ACTION_TRIGGER        4
+#define SNES9X_SPEN_ACTION_RELOAD         5
+
+#define SPEN_HOVER_CURSOR          0
+#define SPEN_HOVER_LIGHTGUN_TRACK  1
+#define SPEN_HOVER_DISABLED        2
+
 static snes_ntsc_t *snes_ntsc = NULL;
 static int blargg_filter = 0;
 static uint16 *ntsc_screen_buffer, *snes_ntsc_buffer;
@@ -172,6 +187,13 @@ enum lightgun_mode
 };
 static lightgun_mode setting_gun_input = SETTING_GUN_INPUT_LIGHTGUN;
 
+enum mouse_mode
+{
+	SETTING_MOUSE_MODE_RELATIVE,
+	SETTING_MOUSE_MODE_ABSOLUTE
+};
+static mouse_mode setting_mouse_mode = SETTING_MOUSE_MODE_RELATIVE;
+
 // Touchscreen sensitivity vars
 static int pointer_pressed = 0;
 static const int POINTER_PRESSED_CYCLES = 4;
@@ -180,6 +202,11 @@ static int pointer_pressed_last_x = 0;
 static int pointer_pressed_last_y = 0;
 
 static bool setting_superscope_reverse_buttons = false;
+
+/* S-Pen action and behavior variables */
+static int spen_tap_action = SNES9X_SPEN_ACTION_LEFT_CLICK;
+static int spen_barrel_action = SNES9X_SPEN_ACTION_RIGHT_CLICK;
+static int spen_hover_behavior = SPEN_HOVER_CURSOR;
 
 void retro_set_environment(retro_environment_t cb)
 {
@@ -534,10 +561,20 @@ static void update_variables(void)
     var.key="snes9x_lightgun_mode";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var))
     {
-      if ( !strcmp(var.value, "Touchscreen") ) {
+      if (var.value && (!strcmp(var.value, "Absolute") || !strcmp(var.value, "Touchscreen"))) {
          setting_gun_input = SETTING_GUN_INPUT_POINTER;
       } else {
          setting_gun_input = SETTING_GUN_INPUT_LIGHTGUN;
+      }
+    }
+
+    var.key="snes9x_mouse_mode";
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var))
+    {
+      if (var.value && !strcmp(var.value, "Absolute")) {
+         setting_mouse_mode = SETTING_MOUSE_MODE_ABSOLUTE;
+      } else {
+         setting_mouse_mode = SETTING_MOUSE_MODE_RELATIVE;
       }
     }
 
@@ -545,6 +582,54 @@ static void update_variables(void)
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var))
     {
         setting_superscope_reverse_buttons = strcmp(var.value, "enabled") == 0;
+    }
+
+    /* Parse S-Pen tap action */
+    var.key="snes9x_spen_tap_action";
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+    {
+        if (!strcmp(var.value, "left_click"))
+            spen_tap_action = SNES9X_SPEN_ACTION_LEFT_CLICK;
+        else if (!strcmp(var.value, "right_click"))
+            spen_tap_action = SNES9X_SPEN_ACTION_RIGHT_CLICK;
+        else if (!strcmp(var.value, "middle_click"))
+            spen_tap_action = SNES9X_SPEN_ACTION_MIDDLE_CLICK;
+        else if (!strcmp(var.value, "trigger"))
+            spen_tap_action = SNES9X_SPEN_ACTION_TRIGGER;
+        else if (!strcmp(var.value, "reload"))
+            spen_tap_action = SNES9X_SPEN_ACTION_RELOAD;
+        else if (!strcmp(var.value, "disabled"))
+            spen_tap_action = SNES9X_SPEN_ACTION_DISABLED;
+    }
+
+    /* Parse S-Pen barrel action */
+    var.key="snes9x_spen_barrel_action";
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+    {
+        if (!strcmp(var.value, "left_click"))
+            spen_barrel_action = SNES9X_SPEN_ACTION_LEFT_CLICK;
+        else if (!strcmp(var.value, "right_click"))
+            spen_barrel_action = SNES9X_SPEN_ACTION_RIGHT_CLICK;
+        else if (!strcmp(var.value, "middle_click"))
+            spen_barrel_action = SNES9X_SPEN_ACTION_MIDDLE_CLICK;
+        else if (!strcmp(var.value, "trigger"))
+            spen_barrel_action = SNES9X_SPEN_ACTION_TRIGGER;
+        else if (!strcmp(var.value, "reload"))
+            spen_barrel_action = SNES9X_SPEN_ACTION_RELOAD;
+        else if (!strcmp(var.value, "disabled"))
+            spen_barrel_action = SNES9X_SPEN_ACTION_DISABLED;
+    }
+
+    /* Parse S-Pen hover behavior */
+    var.key="snes9x_spen_hover_behavior";
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+    {
+        if (!strcmp(var.value, "cursor"))
+            spen_hover_behavior = SPEN_HOVER_CURSOR;
+        else if (!strcmp(var.value, "lightgun_tracking"))
+            spen_hover_behavior = SPEN_HOVER_LIGHTGUN_TRACK;
+        else if (!strcmp(var.value, "disabled"))
+            spen_hover_behavior = SPEN_HOVER_DISABLED;
     }
 
     var.key="snes9x_superscope_crosshair";
@@ -1514,8 +1599,9 @@ void retro_init(void)
 #define MOUSE_Y RETRO_DEVICE_ID_MOUSE_Y
 #define MOUSE_LEFT RETRO_DEVICE_ID_MOUSE_LEFT
 #define MOUSE_RIGHT RETRO_DEVICE_ID_MOUSE_RIGHT
+#define MOUSE_MIDDLE RETRO_DEVICE_ID_MOUSE_MIDDLE
 #define MOUSE_FIRST MOUSE_X
-#define MOUSE_LAST MOUSE_RIGHT
+#define MOUSE_LAST MOUSE_MIDDLE
 
 static int scope_buttons[] =
 {
@@ -1680,22 +1766,26 @@ static void input_report_gun_position( unsigned port, int s9xinput )
 
 static void input_handle_pointer_lightgun( unsigned port, unsigned gun_device, int s9xinput )
 {
+    int16_t pointer_x, pointer_y;
     int x, y;
-    x = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_X);
-    y = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_Y);
+    
+    /* Always poll coordinates for S-Pen hover support - RetroArch handles hover detection */
+    /* This enables proper hover cursor movement and side button detection during hover */
+    pointer_x = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_X);
+    pointer_y = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_Y);
+    bool pointer_pressed = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_PRESSED);
 
-	/*scale & clamp*/
-	x = ( ( x + 0x7FFF ) * g_screen_gun_width ) / 0xFFFF;
-	if ( x < 0 )
+	/* Transform using SNES9x coordinate system (consistent with lightgun implementation) */
+	x = ((int)pointer_x + 0x7FFF) * g_screen_gun_width / 0xFFFF;
+	if (x < 0)
 		x = 0;
-	else if ( x >= g_screen_gun_width )
+	else if (x >= g_screen_gun_width)
 		x = g_screen_gun_width - 1;
 
-	/*scale & clamp*/
-	y = ( ( y + 0x7FFF ) * g_screen_gun_height ) / 0xFFFF;
-	if ( y < 0 )
+	y = ((int)pointer_y + 0x7FFF) * g_screen_gun_height / 0xFFFF;
+	if (y < 0)
 		y = 0;
-	else if ( y >= g_screen_gun_height )
+	else if (y >= g_screen_gun_height)
 		y = g_screen_gun_height - 1;
 
     // Touch sensitivity: Keep the gun position held for a fixed number of cycles after touch is released
@@ -1708,7 +1798,7 @@ static void input_handle_pointer_lightgun( unsigned port, unsigned gun_device, i
         return;
     }
 
-    if ( input_state_cb( port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_PRESSED ) )
+    if ( pointer_pressed )
     {
         pointer_pressed = 1;
         pointer_cycles_after_released = 0;
@@ -1747,30 +1837,65 @@ static void input_handle_pointer_lightgun( unsigned port, unsigned gun_device, i
             bool trigger_pressed = false;
             bool turbo_pressed = false;
             bool cursor_pressed = false;
-            if ( input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_PRESSED) ) {
+            
+            /* Legacy finger touch multi-touch support - always preserved */
+            if ( pointer_pressed ) {
                 int touch_count = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_COUNT);
                 if ( touch_count == 4 ) {
-                    // start button
                     start_pressed = true;
                 } else if ( touch_count == 3 ) {
                     turbo_pressed = true;
                 } else if ( touch_count == 2 ) {
-                    if ( setting_superscope_reverse_buttons )
-                    {
+                    if ( setting_superscope_reverse_buttons ) {
                         trigger_pressed = true;
-                    } else
-                    {
+                    } else {
                         cursor_pressed = true;
                     }
                 } else {
-                    if ( setting_superscope_reverse_buttons )
-                    {
+                    if ( setting_superscope_reverse_buttons ) {
                         cursor_pressed = true;
-                    } else
-                    {
+                    } else {
                         trigger_pressed = true;
                     }
                 }
+            }
+            
+            /* S-Pen enhancement - add configurable mapping on top of legacy */
+            bool tap_detected = pointer_pressed;
+            /* Side button detection via pointer count - RetroArch exposes side button as additional pointer */
+            int pointer_count = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_COUNT);
+            bool barrel_detected = (pointer_count > 1); /* Side button creates additional pointer */
+            bool hover_detected = false;  /* TODO: Add hover detection from Android system */
+            
+            if (tap_detected && spen_tap_action != SNES9X_SPEN_ACTION_DISABLED) {
+                switch (spen_tap_action) {
+                    case SNES9X_SPEN_ACTION_LEFT_CLICK:
+                    case SNES9X_SPEN_ACTION_RIGHT_CLICK:
+                    case SNES9X_SPEN_ACTION_MIDDLE_CLICK:
+                    case SNES9X_SPEN_ACTION_TRIGGER:
+                        trigger_pressed = true; break;
+                    case SNES9X_SPEN_ACTION_RELOAD:
+                        /* Reload typically handled as off-screen shot in lightgun games */
+                        break;
+                }
+            }
+            
+            if (barrel_detected && spen_barrel_action != SNES9X_SPEN_ACTION_DISABLED) {
+                switch (spen_barrel_action) {
+                    case SNES9X_SPEN_ACTION_LEFT_CLICK:
+                    case SNES9X_SPEN_ACTION_RIGHT_CLICK:
+                    case SNES9X_SPEN_ACTION_MIDDLE_CLICK:
+                    case SNES9X_SPEN_ACTION_TRIGGER:
+                        trigger_pressed = true; break;
+                    case SNES9X_SPEN_ACTION_RELOAD:
+                        /* Reload typically handled as off-screen shot */
+                        break;
+                }
+            }
+            
+            /* Hover behavior for lightgun tracking */
+            if (hover_detected && spen_hover_behavior == SPEN_HOVER_LIGHTGUN_TRACK) {
+                cursor_pressed = true; /* Show cursor when hovering for aiming */
             }
             S9xReportButton(MAKE_BUTTON(PAD_2, SUPER_SCOPE_START), start_pressed);
             S9xReportButton(MAKE_BUTTON(PAD_2, SUPER_SCOPE_TRIGGER), trigger_pressed);
@@ -1787,7 +1912,7 @@ static void input_handle_pointer_lightgun( unsigned port, unsigned gun_device, i
             bool trigger_pressed = false;
             bool start_pressed = false;
             bool offscreen = false;
-            if ( input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_PRESSED) ) {
+            if ( pointer_pressed ) {
                 int touch_count = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_COUNT);
                 if ( touch_count == 3 ) {
                     start_pressed = true;
@@ -1804,7 +1929,7 @@ static void input_handle_pointer_lightgun( unsigned port, unsigned gun_device, i
         }
         case RETRO_DEVICE_LIGHTGUN_MACS_RIFLE:
         {
-            int pressed = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_PRESSED);
+            int pressed = pointer_pressed;
             S9xReportButton(MAKE_BUTTON(PAD_2, MACS_RIFLE_TRIGGER),pressed);
             break;
         }
@@ -1858,13 +1983,63 @@ static void report_buttons()
                 break;
 
             case RETRO_DEVICE_MOUSE:
-                _x = input_state_cb(port, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X);
-                _y = input_state_cb(port, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_Y);
-                snes_mouse_state[port][0] += _x;
-                snes_mouse_state[port][1] += _y;
+                if (setting_mouse_mode == SETTING_MOUSE_MODE_ABSOLUTE) {
+                    /* Absolute mode - direct S-Pen positioning with hover support */
+                    /* Always poll coordinates to support hover cursor movement */
+                    int16_t pointer_x = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_X);
+                    int16_t pointer_y = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_Y);
+                    bool mouse_pointer_active = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_PRESSED);
+                    
+                    /* Transform libretro pointer range to SNES coordinates (consistent with SNES9x system) */
+                    snes_mouse_state[port][0] = ((int)pointer_x + 0x7FFF) * 256 / 0xFFFF;  /* SNES width 0-255 */
+                    snes_mouse_state[port][1] = ((int)pointer_y + 0x7FFF) * 224 / 0xFFFF;  /* SNES height 0-223 */
+                    /* Handle buttons - preserved legacy behavior with S-Pen enhancement */
+                    for (int i = MOUSE_LEFT; i <= MOUSE_LAST; i++) {
+                        bool pressed = input_state_cb(port, RETRO_DEVICE_MOUSE, 0, i);
+                        
+                        /* Legacy finger touch support */
+                        if (i == MOUSE_LEFT) {
+                            pressed |= mouse_pointer_active;
+                        }
+                        
+                        /* S-Pen enhancement - add configurable mapping on top of legacy */
+                        bool tap_detected = mouse_pointer_active;
+                        /* Side button detection via pointer count - RetroArch exposes side button as additional pointer */
+                        int pointer_count = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_COUNT);
+                        bool barrel_detected = (pointer_count > 1); /* Side button creates additional pointer */
+                        
+                        if (tap_detected && spen_tap_action != SNES9X_SPEN_ACTION_DISABLED) {
+                            switch (spen_tap_action) {
+                                case SNES9X_SPEN_ACTION_LEFT_CLICK:   if (i == MOUSE_LEFT) pressed = true; break;
+                                case SNES9X_SPEN_ACTION_RIGHT_CLICK:  if (i == MOUSE_RIGHT) pressed = true; break;
+                                case SNES9X_SPEN_ACTION_MIDDLE_CLICK: if (i == MOUSE_MIDDLE) pressed = true; break;
+                                case SNES9X_SPEN_ACTION_TRIGGER:      if (i == MOUSE_LEFT) pressed = true; break; /* Trigger maps to left click for mouse */
+                                case SNES9X_SPEN_ACTION_RELOAD:       /* Reload not applicable for mouse mode */ break;
+                            }
+                        }
+                        
+                        if (barrel_detected && spen_barrel_action != SNES9X_SPEN_ACTION_DISABLED) {
+                            switch (spen_barrel_action) {
+                                case SNES9X_SPEN_ACTION_LEFT_CLICK:   if (i == MOUSE_LEFT) pressed = true; break;
+                                case SNES9X_SPEN_ACTION_RIGHT_CLICK:  if (i == MOUSE_RIGHT) pressed = true; break;
+                                case SNES9X_SPEN_ACTION_MIDDLE_CLICK: if (i == MOUSE_MIDDLE) pressed = true; break;
+                                case SNES9X_SPEN_ACTION_TRIGGER:      if (i == MOUSE_LEFT) pressed = true; break; /* Trigger maps to left click for mouse */
+                                case SNES9X_SPEN_ACTION_RELOAD:       /* Reload not applicable for mouse mode */ break;
+                            }
+                        }
+                        
+                        S9xReportButton(MAKE_BUTTON(port + 1, i), pressed);
+                    }
+                } else {
+                    /* Relative mode - existing behavior preserved */
+                    _x = input_state_cb(port, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X);
+                    _y = input_state_cb(port, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_Y);
+                    snes_mouse_state[port][0] += _x;
+                    snes_mouse_state[port][1] += _y;
+                    for (int i = MOUSE_LEFT; i <= MOUSE_LAST; i++)
+                        S9xReportButton(MAKE_BUTTON(port + 1, i), input_state_cb(port, RETRO_DEVICE_MOUSE, 0, i));
+                }
                 S9xReportPointer(BTN_POINTER + port, snes_mouse_state[port][0], snes_mouse_state[port][1]);
-                for (int i = MOUSE_LEFT; i <= MOUSE_LAST; i++)
-                    S9xReportButton(MAKE_BUTTON(port + 1, i), input_state_cb(port, RETRO_DEVICE_MOUSE, 0, i));
                 break;
 
             case RETRO_DEVICE_LIGHTGUN_SUPER_SCOPE:

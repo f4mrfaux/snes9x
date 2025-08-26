@@ -304,15 +304,80 @@ struct retro_core_option_v2_definition option_defs_us[] = {
       "snes9x_lightgun_mode",
       "Light Gun Mode",
       "Mode",
-      "Use a mouse-controlled 'Light Gun' or 'Touchscreen' input.",
+      "Use relative light gun tracking or absolute pointer positioning.",
       NULL,
       "lightgun",
       {
-         { "Lightgun",    "Light Gun" },
-         { "Touchscreen", NULL },
+         { "Lightgun",  "Light Gun" },
+         { "Absolute",  "Absolute" },
          { NULL, NULL },
       },
       "Lightgun"
+   },
+   {
+      "snes9x_spen_tap_action",
+      "S-Pen Tap Action",
+      "Tap Action", 
+      "Configure what stylus tap (screen contact) does in absolute modes.",
+      NULL,
+      "input",
+      {
+         { "left_click", "Left Click" },
+         { "right_click", "Right Click" },
+         { "middle_click", "Middle Click" },
+         { "trigger", "Trigger/Shoot" },
+         { "reload", "Reload" },
+         { "disabled", "Disabled" },
+         { NULL, NULL },
+      },
+      "left_click"
+   },
+   {
+      "snes9x_spen_barrel_action",
+      "S-Pen Barrel Button Action", 
+      "Barrel Action",
+      "Configure what the S-Pen barrel (side) button does in absolute modes.",
+      NULL,
+      "input",
+      {
+         { "right_click", "Right Click" },
+         { "left_click", "Left Click" },
+         { "middle_click", "Middle Click" },
+         { "trigger", "Trigger/Shoot" },
+         { "reload", "Reload" },
+         { "disabled", "Disabled" },
+         { NULL, NULL },
+      },
+      "right_click"
+   },
+   {
+      "snes9x_spen_hover_behavior",
+      "S-Pen Hover Behavior", 
+      "Hover Behavior",
+      "How S-Pen hover (proximity without contact) is handled. Lightgun tracking enables aiming without shooting.",
+      NULL,
+      "input",
+      {
+         { "cursor", "Cursor Only" },
+         { "lightgun_tracking", "Lightgun Tracking" },
+         { "disabled", "Disabled" },
+         { NULL, NULL },
+      },
+      "cursor"
+   },
+   {
+      "snes9x_mouse_mode",
+      "SNES Mouse Mode",
+      "Mode",
+      "Use relative mouse movement or absolute pointer positioning for SNES Mouse input. Absolute mode enables direct stylus positioning for drawing and painting games.",
+      NULL,
+      "input",
+      {
+         { "Relative",  "Relative" },
+         { "Absolute",  "Absolute" },
+         { NULL, NULL },
+      },
+      "Relative"
    },
    {
       "snes9x_superscope_reverse_buttons",
