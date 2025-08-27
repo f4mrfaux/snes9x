@@ -1991,8 +1991,9 @@ static void report_buttons()
                     bool mouse_pointer_active = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_PRESSED);
                     
                     /* Transform libretro pointer range to SNES coordinates (consistent with SNES9x system) */
-                    snes_mouse_state[port][0] = ((int)pointer_x + 0x7FFF) * 256 / 0xFFFF;  /* SNES width 0-255 */
-                    snes_mouse_state[port][1] = ((int)pointer_y + 0x7FFF) * 224 / 0xFFFF;  /* SNES height 0-223 */
+                    /* libretro pointer range: -0x7FFF to +0x7FFF (signed), map to SNES coordinates */
+                    snes_mouse_state[port][0] = ((int)pointer_x + 0x7FFF) * 256 / 0xFFFE;  /* SNES width 0-255 */
+                    snes_mouse_state[port][1] = ((int)pointer_y + 0x7FFF) * 224 / 0xFFFE;  /* SNES height 0-223 */
                     /* Handle buttons - preserved legacy behavior with S-Pen enhancement */
                     for (int i = MOUSE_LEFT; i <= MOUSE_LAST; i++) {
                         bool pressed = input_state_cb(port, RETRO_DEVICE_MOUSE, 0, i);
