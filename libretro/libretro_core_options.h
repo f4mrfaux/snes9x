@@ -366,6 +366,35 @@ struct retro_core_option_v2_definition option_defs_us[] = {
       "cursor"
    },
    {
+      "snes9x_spen_coordinate_mode",
+      "S-Pen Coordinate Mode",
+      "Coordinates",
+      "S-Pen coordinate mapping mode. Absolute provides direct screen positioning for drawing games. Relative provides mouse-like movement for traditional games.",
+      NULL,
+      "input",
+      {
+         { "absolute", "Absolute (Direct Positioning)" },
+         { "relative", "Relative (Mouse Movement)" },
+         { NULL, NULL },
+      },
+      "absolute"
+   },
+   {
+      "snes9x_spen_input_mode",
+      "S-Pen Input Mode",
+      "Input Mode",
+      "S-Pen input device mapping. Mouse mode for drawing/painting games, Lightgun mode for shooting games, Auto selects based on detected input device.",
+      NULL,
+      "input", 
+      {
+         { "auto", "Auto-Detect" },
+         { "mouse", "Force Mouse Mode" },
+         { "lightgun", "Force Lightgun Mode" },
+         { NULL, NULL },
+      },
+      "auto"
+   },
+   {
       "snes9x_mouse_mode",
       "SNES Mouse Mode",
       "Mode",

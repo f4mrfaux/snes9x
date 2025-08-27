@@ -207,6 +207,8 @@ static bool setting_superscope_reverse_buttons = false;
 static int spen_tap_action = SNES9X_SPEN_ACTION_LEFT_CLICK;
 static int spen_barrel_action = SNES9X_SPEN_ACTION_RIGHT_CLICK;
 static int spen_hover_behavior = SPEN_HOVER_CURSOR;
+static int spen_coordinate_mode = 0; /* 0=absolute, 1=relative */
+static int spen_input_mode = 0; /* 0=auto, 1=mouse, 2=lightgun */
 
 void retro_set_environment(retro_environment_t cb)
 {
@@ -630,6 +632,28 @@ static void update_variables(void)
             spen_hover_behavior = SPEN_HOVER_LIGHTGUN_TRACK;
         else if (!strcmp(var.value, "disabled"))
             spen_hover_behavior = SPEN_HOVER_DISABLED;
+    }
+
+    /* Parse S-Pen coordinate mode */
+    var.key="snes9x_spen_coordinate_mode";
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+    {
+        if (!strcmp(var.value, "absolute"))
+            spen_coordinate_mode = 0;
+        else if (!strcmp(var.value, "relative"))
+            spen_coordinate_mode = 1;
+    }
+
+    /* Parse S-Pen input mode */
+    var.key="snes9x_spen_input_mode"; 
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+    {
+        if (!strcmp(var.value, "auto"))
+            spen_input_mode = 0;
+        else if (!strcmp(var.value, "mouse"))
+            spen_input_mode = 1;
+        else if (!strcmp(var.value, "lightgun"))
+            spen_input_mode = 2;
     }
 
     var.key="snes9x_superscope_crosshair";
@@ -1865,7 +1889,7 @@ static void input_handle_pointer_lightgun( unsigned port, unsigned gun_device, i
             /* Side button detection via pointer count - RetroArch exposes side button as additional pointer */
             int pointer_count = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_COUNT);
             bool barrel_detected = (pointer_count > 1); /* Side button creates additional pointer */
-            bool hover_detected = false;  /* TODO: Add hover detection from Android system */
+            bool hover_detected = !pointer_pressed && (spen_hover_behavior != SPEN_HOVER_DISABLED);  /* Hovering when stylus near but not touching */
             
             if (tap_detected && spen_tap_action != SNES9X_SPEN_ACTION_DISABLED) {
                 switch (spen_tap_action) {
@@ -1983,7 +2007,20 @@ static void report_buttons()
                 break;
 
             case RETRO_DEVICE_MOUSE:
-                if (setting_mouse_mode == SETTING_MOUSE_MODE_ABSOLUTE) {
+            {
+                /* Auto-detect input mode based on S-Pen settings and connected devices */
+                bool is_spen_device = (spen_input_mode == 1) || /* Force mouse mode */
+                                     (spen_input_mode == 0 && /* Auto-detect mode */
+                                      (spen_tap_action != SNES9X_SPEN_ACTION_DISABLED || 
+                                       spen_barrel_action != SNES9X_SPEN_ACTION_DISABLED ||
+                                       spen_hover_behavior != SPEN_HOVER_DISABLED));
+                
+                /* Determine coordinate mode: respect S-Pen coordinate mode setting or fall back to legacy mouse mode */
+                bool use_absolute_mode = is_spen_device ? 
+                                       (spen_coordinate_mode == 0) : /* S-Pen: default absolute */
+                                       (setting_mouse_mode == SETTING_MOUSE_MODE_ABSOLUTE); /* Legacy mouse */
+                                       
+                if (use_absolute_mode) {
                     /* Absolute mode - direct S-Pen positioning with hover support */
                     /* Always poll coordinates to support hover cursor movement */
                     int16_t pointer_x = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_X);
@@ -2041,11 +2078,19 @@ static void report_buttons()
                         S9xReportButton(MAKE_BUTTON(port + 1, i), input_state_cb(port, RETRO_DEVICE_MOUSE, 0, i));
                 }
                 S9xReportPointer(BTN_POINTER + port, snes_mouse_state[port][0], snes_mouse_state[port][1]);
+            }
                 break;
 
             case RETRO_DEVICE_LIGHTGUN_SUPER_SCOPE:
+            {
+                /* S-Pen input mode integration: force lightgun mode uses pointer input for better precision */
+                bool use_spen_lightgun = (spen_input_mode == 2) || /* Force lightgun mode */
+                                       (spen_input_mode == 0 && /* Auto-detect mode */
+                                        (spen_tap_action != SNES9X_SPEN_ACTION_DISABLED || 
+                                         spen_barrel_action != SNES9X_SPEN_ACTION_DISABLED ||
+                                         spen_hover_behavior != SPEN_HOVER_DISABLED));
 
-                if ( setting_gun_input == SETTING_GUN_INPUT_POINTER ) {
+                if (use_spen_lightgun || setting_gun_input == SETTING_GUN_INPUT_POINTER) {
                     input_handle_pointer_lightgun(port, RETRO_DEVICE_LIGHTGUN_SUPER_SCOPE, BTN_POINTER);
                 } else {
                     // Lightgun is default
@@ -2075,6 +2120,7 @@ static void report_buttons()
                         S9xReportButton(MAKE_BUTTON(PAD_2, super_scope_button_id), btn);
                     }
                 }
+            }
                 break;
 
             case RETRO_DEVICE_LIGHTGUN_JUSTIFIER:
