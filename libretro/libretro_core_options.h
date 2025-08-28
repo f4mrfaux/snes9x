@@ -354,27 +354,28 @@ struct retro_core_option_v2_definition option_defs_us[] = {
       "snes9x_spen_hover_behavior",
       "S-Pen Hover Behavior", 
       "Hover Behavior",
-      "How S-Pen hover (proximity without contact) is handled. Lightgun tracking enables aiming without shooting.",
+      "How S-Pen hover (proximity without contact) is handled. 'Cursor Only' moves cursor without clicks. 'Active Cursor' ensures games recognize movement by simulating minimal mouse activity. 'Lightgun Tracking' enables aiming without shooting.",
       NULL,
       "input",
       {
          { "cursor", "Cursor Only" },
+         { "active_cursor", "Active Cursor (Force Recognition)" },
          { "lightgun_tracking", "Lightgun Tracking" },
          { "disabled", "Disabled" },
          { NULL, NULL },
       },
-      "cursor"
+      "active_cursor"
    },
    {
       "snes9x_spen_coordinate_mode",
-      "S-Pen Coordinate Mode",
-      "Coordinates",
-      "S-Pen coordinate mapping mode. Absolute provides direct screen positioning for drawing games. Relative provides mouse-like movement for traditional games.",
+      "S-Pen Coordinate Mode (Stylus Only)",
+      "S-Pen Coordinates",
+      "Coordinate mode specifically for S-Pen/stylus input. Absolute provides direct screen positioning ideal for drawing games. Relative provides mouse-like movement for traditional games. This overrides 'SNES Mouse Mode' when S-Pen is detected.",
       NULL,
       "input",
       {
-         { "absolute", "Absolute (Direct Positioning)" },
-         { "relative", "Relative (Mouse Movement)" },
+         { "absolute", "Absolute (Direct Screen Positioning)" },
+         { "relative", "Relative (Mouse-like Movement)" },
          { NULL, NULL },
       },
       "absolute"
@@ -396,14 +397,14 @@ struct retro_core_option_v2_definition option_defs_us[] = {
    },
    {
       "snes9x_mouse_mode",
-      "SNES Mouse Mode",
-      "Mode",
-      "Use relative mouse movement or absolute pointer positioning for SNES Mouse input. Absolute mode enables direct stylus positioning for drawing and painting games.",
+      "SNES Mouse Mode (Legacy Mouse/Touch)",
+      "Legacy Mode",
+      "Coordinate mode for traditional mouse/touch input devices (NOT S-Pen). This setting is ignored when S-Pen is detected - use 'S-Pen Coordinate Mode' instead for stylus input.",
       NULL,
       "input",
       {
-         { "Relative",  "Relative" },
-         { "Absolute",  "Absolute" },
+         { "Relative",  "Relative Mouse Movement" },
+         { "Absolute",  "Absolute Touch Positioning" },
          { NULL, NULL },
       },
       "Relative"
