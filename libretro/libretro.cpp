@@ -1774,15 +1774,15 @@ static void input_report_gun_position( unsigned port, int s9xinput )
     x = input_state_cb(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X);
     y = input_state_cb(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_SCREEN_Y);
 
-	/*scale & clamp*/
-	x = ( ( x + 0x7FFF ) * g_screen_gun_width ) / 0xFFFF;
+	/*scale & clamp - use 0xFFFE for universal hardware compatibility*/
+	x = ( ( x + 0x7FFF ) * g_screen_gun_width ) / 0xFFFE;
 	if ( x < 0 )
 		x = 0;
 	else if ( x >= g_screen_gun_width )
 		x = g_screen_gun_width - 1;
 
-	/*scale & clamp*/
-	y = ( ( y + 0x7FFF ) * g_screen_gun_height ) / 0xFFFF;
+	/*scale & clamp - use 0xFFFE for universal hardware compatibility*/
+	y = ( ( y + 0x7FFF ) * g_screen_gun_height ) / 0xFFFE;
 	if ( y < 0 )
 		y = 0;
 	else if ( y >= g_screen_gun_height )
@@ -1802,14 +1802,14 @@ static void input_handle_pointer_lightgun( unsigned port, unsigned gun_device, i
     pointer_y = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_Y);
     bool pointer_pressed = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_PRESSED);
 
-	/* Transform using SNES9x coordinate system (consistent with lightgun implementation) */
-	x = ((int)pointer_x + 0x7FFF) * g_screen_gun_width / 0xFFFF;
+	/* Transform using corrected coordinate system (consistent with MelonDS and RetroArch) */
+	x = ((int)pointer_x + 0x7FFF) * g_screen_gun_width / 0xFFFE;
 	if (x < 0)
 		x = 0;
 	else if (x >= g_screen_gun_width)
 		x = g_screen_gun_width - 1;
 
-	y = ((int)pointer_y + 0x7FFF) * g_screen_gun_height / 0xFFFF;
+	y = ((int)pointer_y + 0x7FFF) * g_screen_gun_height / 0xFFFE;
 	if (y < 0)
 		y = 0;
 	else if (y >= g_screen_gun_height)
@@ -2030,11 +2030,21 @@ static void report_buttons()
                     int16_t pointer_y = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_Y);
                     bool mouse_pointer_active = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_PRESSED);
                     
-                    /* Transform libretro pointer range to SNES coordinates (consistent with SNES9x system) */
-                    /* libretro pointer range: -0x7FFF to +0x7FFF (signed), map to SNES coordinates */
+                    /* Transform libretro pointer range to SNES coordinates (consistent with lightgun implementation) */
+                    /* libretro pointer range: -0x7FFF to +0x7FFF (signed), map to screen coordinates */
                     /* Always update coordinates from RETRO_POINTER - this enables hover cursor movement */
-                    snes_mouse_state[port][0] = ((int)pointer_x + 0x7FFF) * 256 / 0xFFFE;  /* SNES width 0-255 */
-                    snes_mouse_state[port][1] = ((int)pointer_y + 0x7FFF) * 224 / 0xFFFE;  /* SNES height 0-223 */
+                    /* Use same coordinate system as MelonDS and libretro spec for maximum hardware compatibility */
+                    int x = ((int)pointer_x + 0x7FFF) * g_screen_gun_width / 0xFFFE;
+                    int y = ((int)pointer_y + 0x7FFF) * g_screen_gun_height / 0xFFFE;
+                    
+                    /* Clamp coordinates to valid range */
+                    if (x < 0) x = 0;
+                    else if (x >= g_screen_gun_width) x = g_screen_gun_width - 1;
+                    if (y < 0) y = 0;
+                    else if (y >= g_screen_gun_height) y = g_screen_gun_height - 1;
+                    
+                    snes_mouse_state[port][0] = x;
+                    snes_mouse_state[port][1] = y;
                     /* Handle buttons - preserved legacy behavior with S-Pen enhancement */
                     for (int i = MOUSE_LEFT; i <= MOUSE_LAST; i++) {
                         bool pressed = input_state_cb(port, RETRO_DEVICE_MOUSE, 0, i);
@@ -2072,22 +2082,11 @@ static void report_buttons()
                         }
                         
                         /* Hover behavior - active cursor mode simulates minimal activity to ensure games recognize movement */
-                        if (hover_detected && spen_hover_behavior == SPEN_HOVER_ACTIVE_CURSOR) {
+                        if (hover_detected && spen_hover_behavior == SPEN_HOVER_ACTIVE_CURSOR && i == MOUSE_LEFT) {
                             /* Some games (like Clock Tower) require mouse button activity to recognize cursor movement */
-                            /* We simulate a very brief "mouse engaged" state during hover using RETRO_POINTER */
-                            /* This helps games that ignore cursor movement without button activity */
-                            
-                            /* Check if pointer coordinates changed since last frame to avoid constant button spam */
-                            static int16_t last_hover_x = 0, last_hover_y = 0;
-                            bool pointer_moved = (pointer_x != last_hover_x || pointer_y != last_hover_y);
-                            last_hover_x = pointer_x;
-                            last_hover_y = pointer_y;
-                            
-                            /* Only simulate minimal activity when pointer is actually moving during hover */
-                            if (pointer_moved && i == MOUSE_LEFT) {
-                                /* Brief engagement to signal "active cursor" - not a full click */
-                                pressed = false; /* Keep it passive for now, coordinates are key */
-                            }
+                            /* We simulate a gentle "mouse engaged" state during hover to ensure cursor tracking */
+                            /* This creates the minimal engagement needed without triggering actual game actions */
+                            pressed = true; /* Simulate gentle left button engagement during hover */
                         }
                         
                         S9xReportButton(MAKE_BUTTON(port + 1, i), pressed);
