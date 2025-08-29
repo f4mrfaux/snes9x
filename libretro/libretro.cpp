@@ -2012,8 +2012,7 @@ static void report_buttons()
             case RETRO_DEVICE_MOUSE:
             {
                 /* Auto-detect input mode based on S-Pen settings and connected devices */
-                bool is_spen_device = (spen_input_mode == 1) || /* Force mouse mode */
-                                     (spen_input_mode == 0 && /* Auto-detect mode */
+                bool is_spen_device = (spen_input_mode == 0 && /* Auto-detect mode */
                                       (spen_tap_action != SNES9X_SPEN_ACTION_DISABLED || 
                                        spen_barrel_action != SNES9X_SPEN_ACTION_DISABLED ||
                                        spen_hover_behavior != SPEN_HOVER_DISABLED));
@@ -2055,13 +2054,12 @@ static void report_buttons()
                         }
                         
                         /* S-Pen enhancement - add configurable mapping on top of legacy */
-                        bool tap_detected = mouse_pointer_active;
-                        /* Side button detection via pointer count - RetroArch exposes side button as additional pointer */
+                        /* Barrel button detection: Use virtual pointer system like lightgun mode */
                         int pointer_count = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_COUNT);
-                        bool barrel_detected = (pointer_count > 1); /* Side button creates additional pointer */
+                        bool barrel_detected = (pointer_count > 1); /* Virtual pointer system: count > 1 indicates barrel button */
                         bool hover_detected = !mouse_pointer_active && (spen_hover_behavior != SPEN_HOVER_DISABLED); /* Hovering when stylus near but not touching */
                         
-                        if (tap_detected && spen_tap_action != SNES9X_SPEN_ACTION_DISABLED) {
+                        if (mouse_pointer_active && spen_tap_action != SNES9X_SPEN_ACTION_DISABLED) {
                             switch (spen_tap_action) {
                                 case SNES9X_SPEN_ACTION_LEFT_CLICK:   if (i == MOUSE_LEFT) pressed = true; break;
                                 case SNES9X_SPEN_ACTION_RIGHT_CLICK:  if (i == MOUSE_RIGHT) pressed = true; break;
@@ -2081,13 +2079,15 @@ static void report_buttons()
                             }
                         }
                         
-                        /* Hover behavior - active cursor mode simulates minimal activity to ensure games recognize movement */
+                        /* NOTE: Hover behavior disabled with native touchscreen S-Pen behavior
+                         * RetroArch now only updates coordinates on actual contact, not during hover
+                         * This matches native touchscreen behavior and prevents coordinate inconsistencies */
+                        
+                        /* DISABLED: Hover simulation no longer compatible with native touchscreen behavior
                         if (hover_detected && spen_hover_behavior == SPEN_HOVER_ACTIVE_CURSOR && i == MOUSE_LEFT) {
-                            /* Some games (like Clock Tower) require mouse button activity to recognize cursor movement */
-                            /* We simulate a gentle "mouse engaged" state during hover to ensure cursor tracking */
-                            /* This creates the minimal engagement needed without triggering actual game actions */
-                            pressed = true; /* Simulate gentle left button engagement during hover */
+                            pressed = true; 
                         }
+                        */
                         
                         S9xReportButton(MAKE_BUTTON(port + 1, i), pressed);
                     }
