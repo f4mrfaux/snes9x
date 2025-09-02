@@ -40,19 +40,3 @@ needs_fullpath = "false"
 disk_control = "false"
 is_experimental = "false"
 description = "Enhanced with comprehensive S-Pen support for lightgun games with configurable tap, barrel, and hover actions."
-
-# S-Pen Enhancement Details
-# Core Options Added:
-# - snes9x_spen_tap_action: Configure S-Pen tap behavior (left_click/right_click/middle_click/trigger/reload/disabled)
-# - snes9x_spen_barrel_action: Configure S-Pen barrel button behavior (left_click/right_click/middle_click/trigger/reload/disabled)  
-# - snes9x_spen_hover_behavior: Configure hover behavior (cursor/active_cursor/lightgun_tracking/disabled)
-# - snes9x_spen_coordinate_mode: Choose coordinate system (absolute/relative)
-# - snes9x_spen_input_mode: Select input detection mode (auto/mouse/lightgun)
-#
-# Features:
-# - Full RetroArch RETRO_DEVICE_POINTER compliance
-# - Virtual pointer system for barrel button detection
-# - Hover support for lightgun tracking
-# - Coordinate system transformation for proper screen mapping
-# - Legacy multi-touch compatibility preserved
-# - Auto-detection of S-Pen vs traditional input

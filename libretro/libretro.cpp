@@ -1801,6 +1801,17 @@ static void input_handle_pointer_lightgun( unsigned port, unsigned gun_device, i
     pointer_x = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_X);
     pointer_y = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_Y);
     bool pointer_pressed = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_PRESSED);
+    
+    /* Debug: Always log pointer state to understand what RetroArch provides */
+    if (port == 0) {
+        static int log_counter = 0;
+        if (log_counter++ % 60 == 0) { /* Log every ~1 second at 60fps */
+            fprintf(stderr, "[SNES9X Debug] Pointer: x=%d y=%d pressed=%d\n", pointer_x, pointer_y, pointer_pressed);
+            if (log_cb) {
+                log_cb(RETRO_LOG_ERROR, "[SNES9X Debug] Pointer: x=%d y=%d pressed=%d\n", pointer_x, pointer_y, pointer_pressed);
+            }
+        }
+    }
 
 	/* Transform using corrected coordinate system (consistent with MelonDS and RetroArch) */
 	x = ((int)pointer_x + 0x7FFF) * g_screen_gun_width / 0xFFFE;
@@ -1893,6 +1904,14 @@ static void input_handle_pointer_lightgun( unsigned port, unsigned gun_device, i
             int pointer_count = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_COUNT);
             bool barrel_detected = (pointer_count > 1); /* Side button creates additional pointer */
             bool hover_detected = !pointer_pressed && (spen_hover_behavior != SPEN_HOVER_DISABLED);  /* Hovering when stylus near but not touching */
+            
+            /* Debug logging for S-Pen events */
+            if (log_cb) {
+                if (hover_detected || tap_detected || barrel_detected) {
+                    log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen] Lightgun: hover=%d tap=%d barrel=%d ptr_count=%d coords=(%d,%d)\n", 
+                           hover_detected, tap_detected, barrel_detected, pointer_count, x, y);
+                }
+            }
             
             if (tap_detected && spen_tap_action != SNES9X_SPEN_ACTION_DISABLED) {
                 switch (spen_tap_action) {
@@ -2059,6 +2078,14 @@ static void report_buttons()
                         bool barrel_detected = (pointer_count > 1); /* Virtual pointer system: count > 1 indicates barrel button */
                         bool hover_detected = !mouse_pointer_active && (spen_hover_behavior != SPEN_HOVER_DISABLED); /* Hovering when stylus near but not touching */
                         
+                        /* Debug logging for S-Pen mouse events */
+                        if (log_cb) {
+                            if (hover_detected || mouse_pointer_active || barrel_detected) {
+                                log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen] Mouse: hover=%d pressed=%d barrel=%d ptr_count=%d coords=(%d,%d)\n", 
+                                       hover_detected, mouse_pointer_active, barrel_detected, pointer_count, x, y);
+                            }
+                        }
+                        
                         if (mouse_pointer_active && spen_tap_action != SNES9X_SPEN_ACTION_DISABLED) {
                             switch (spen_tap_action) {
                                 case SNES9X_SPEN_ACTION_LEFT_CLICK:   if (i == MOUSE_LEFT) pressed = true; break;
@@ -2079,15 +2106,19 @@ static void report_buttons()
                             }
                         }
                         
-                        /* NOTE: Hover behavior disabled with native touchscreen S-Pen behavior
-                         * RetroArch now only updates coordinates on actual contact, not during hover
-                         * This matches native touchscreen behavior and prevents coordinate inconsistencies */
+                        /* Re-enable hover coordinate updates for proper S-Pen cursor movement */
+                        /* RetroArch DOES update coordinates during hover - we were wrong to disable this */
+                        /* Hover should update cursor position without clicking */
                         
-                        /* DISABLED: Hover simulation no longer compatible with native touchscreen behavior
+                        /* Enable hover-based cursor positioning without button press */
                         if (hover_detected && spen_hover_behavior == SPEN_HOVER_ACTIVE_CURSOR && i == MOUSE_LEFT) {
-                            pressed = true; 
+                            /* Update position but don't press - cursor moves on hover */
+                            /* During hover, coordinates are already updated in snes_mouse_state above */
+                            /* This is correct - hover updates position without clicking */
+                            if (log_cb) {
+                                log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen] Hover cursor active at (%d,%d)\n", x, y);
+                            }
                         }
-                        */
                         
                         S9xReportButton(MAKE_BUTTON(port + 1, i), pressed);
                     }
