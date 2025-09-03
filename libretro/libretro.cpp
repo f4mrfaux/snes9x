@@ -1898,18 +1898,18 @@ static void input_handle_pointer_lightgun( unsigned port, unsigned gun_device, i
                 }
             }
             
-            /* S-Pen enhancement - add configurable mapping on top of legacy */
+            /* S-Pen enhancement - use semantic pointer indices from RetroArch */
             bool tap_detected = pointer_pressed;
-            /* Side button detection via pointer count - RetroArch exposes side button as additional pointer */
-            int pointer_count = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_COUNT);
-            bool barrel_detected = (pointer_count > 1); /* Side button creates additional pointer */
-            bool hover_detected = !pointer_pressed && (spen_hover_behavior != SPEN_HOVER_DISABLED);  /* Hovering when stylus near but not touching */
+            /* Barrel button detection via semantic index 2 - RetroArch semantic pointer system */
+            bool barrel_detected = input_state_cb(port, RETRO_DEVICE_POINTER, 2, RETRO_DEVICE_ID_POINTER_PRESSED);
+            /* Hover detection: stylus present but not touching - RetroArch's semantic pointer system handles this */
+            bool hover_detected = !pointer_pressed && (spen_hover_behavior != SPEN_HOVER_DISABLED);
             
             /* Debug logging for S-Pen events */
             if (log_cb) {
                 if (hover_detected || tap_detected || barrel_detected) {
-                    log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen] Lightgun: hover=%d tap=%d barrel=%d ptr_count=%d coords=(%d,%d)\n", 
-                           hover_detected, tap_detected, barrel_detected, pointer_count, x, y);
+                    log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen] Lightgun: hover=%d tap=%d barrel=%d coords=(%d,%d)\n", 
+                           hover_detected, tap_detected, barrel_detected, x, y);
                 }
             }
             
@@ -2072,17 +2072,17 @@ static void report_buttons()
                             pressed |= mouse_pointer_active; /* RETRO_POINTER pressed state */
                         }
                         
-                        /* S-Pen enhancement - add configurable mapping on top of legacy */
-                        /* Barrel button detection: Use virtual pointer system like lightgun mode */
-                        int pointer_count = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_COUNT);
-                        bool barrel_detected = (pointer_count > 1); /* Virtual pointer system: count > 1 indicates barrel button */
-                        bool hover_detected = !mouse_pointer_active && (spen_hover_behavior != SPEN_HOVER_DISABLED); /* Hovering when stylus near but not touching */
+                        /* S-Pen enhancement - use semantic pointer indices from RetroArch */
+                        /* Barrel button detection: Use semantic index 2 from RetroArch pointer system */
+                        bool barrel_detected = input_state_cb(port, RETRO_DEVICE_POINTER, 2, RETRO_DEVICE_ID_POINTER_PRESSED);
+                        /* Hover detection: stylus present but not touching - RetroArch's semantic pointer system handles this */
+                        bool hover_detected = !mouse_pointer_active && (spen_hover_behavior != SPEN_HOVER_DISABLED);
                         
                         /* Debug logging for S-Pen mouse events */
                         if (log_cb) {
                             if (hover_detected || mouse_pointer_active || barrel_detected) {
-                                log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen] Mouse: hover=%d pressed=%d barrel=%d ptr_count=%d coords=(%d,%d)\n", 
-                                       hover_detected, mouse_pointer_active, barrel_detected, pointer_count, x, y);
+                                log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen] Mouse: hover=%d pressed=%d barrel=%d coords=(%d,%d)\n", 
+                                       hover_detected, mouse_pointer_active, barrel_detected, x, y);
                             }
                         }
                         
