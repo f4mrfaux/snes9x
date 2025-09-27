@@ -594,8 +594,8 @@ PSS_STYLE :=2
 LDFLAGS += -DLL
 CFLAGS += -D_CRT_SECURE_NO_DEPRECATE
 CXXFLAGS += -D_CRT_SECURE_NO_DEPRECATE
-# Windows
-else
+# Windows (fallback for MinGW)
+else ifneq (,$(findstring mingw,$(platform)))
    CFLAGS += $(LTO)
    CXXFLAGS += $(LTO) -DUNZIP_SUPPORT
    LDFLAGS += $(LTO)
@@ -605,6 +605,17 @@ else
    SHARED := -shared -static-libgcc -static-libstdc++ -s -Wl,--version-script=link.T
    CXXFLAGS += -D__WIN32__
    LIBS += -lz -lcrypt32
+# Default Unix-like (Linux, Android, etc.)
+else
+   CFLAGS += $(LTO)
+   CXXFLAGS += $(LTO) -DUNZIP_SUPPORT
+   LDFLAGS += $(LTO)
+   TARGET := $(TARGET_NAME)_libretro.so
+   CC ?= gcc
+   CXX ?= g++
+   fpic := -fPIC
+   SHARED := -shared -Wl,--version-script=link.T -Wl,-z,defs
+   LIBS += -lz
 endif
 
 CORE_DIR := ..

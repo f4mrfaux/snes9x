@@ -2,7 +2,7 @@ ifeq ($(LIBRETRO_COMM_DIR),)
 	LIBRETRO_COMM_DIR = $(CORE_DIR)/libretro/libretro-common
 endif
 
-INCFLAGS   = -I$(CORE_DIR)/libretro -I$(LIBRETRO_COMM_DIR)/include -I$(CORE_DIR) -I$(CORE_DIR)/apu/ -I$(CORE_DIR)/apu/bapu
+INCFLAGS   = -I$(CORE_DIR)/libretro -I$(LIBRETRO_COMM_DIR)/include -I$(CORE_DIR) -I$(CORE_DIR)/apu/ -I$(CORE_DIR)/apu/bapu -I$(CORE_DIR)/unzip
 
 ifneq (,$(findstring msvc2003,$(platform)))
 INCFLAGS += -I$(LIBRETRO_COMM_DIR)/include/compat/msvc
@@ -71,6 +71,10 @@ ifneq (,$(findstring unix,$(platform)))
 endif
 ifneq (,$(findstring win,$(platform)))
    INCFLAGS += -I$(CORE_DIR)/unzip
+   SOURCES_C += $(CORE_DIR)/unzip/unzip.c \
+                $(CORE_DIR)/unzip/ioapi.c
+endif
+ifneq (,$(findstring android,$(platform)))
    SOURCES_C += $(CORE_DIR)/unzip/unzip.c \
                 $(CORE_DIR)/unzip/ioapi.c
 endif

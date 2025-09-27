@@ -364,7 +364,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
          { "disabled", "Disabled" },
          { NULL, NULL },
       },
-      "active_cursor"
+      "cursor"
    },
    {
       "snes9x_spen_coordinate_mode",
@@ -407,7 +407,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
          { "Absolute",  "Absolute Touch Positioning" },
          { NULL, NULL },
       },
-      "Relative"
+      "Absolute"
    },
    {
       "snes9x_superscope_reverse_buttons",
