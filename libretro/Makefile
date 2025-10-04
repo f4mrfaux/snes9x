@@ -295,6 +295,41 @@ else ifeq ($(platform), qnx)
    CXXFLAGS += -DARM
    HAVE_EXCEPTIONS = 1
 
+# Android
+else ifeq ($(platform), android)
+   TARGET := $(TARGET_NAME)_libretro.so
+   fpic := -fPIC
+   SHARED := -shared -Wl,--version-script=link.T -Wl,--no-undefined
+   CXXFLAGS += -DANDROID -DARM
+   HAVE_EXCEPTIONS = 1
+
+   # Default to ARM64 if no arch specified
+   ifeq ($(arch),)
+      arch = arm64
+   endif
+
+   # Set up Android NDK toolchain
+   NDK_ROOT ?= $(ANDROID_NDK)
+   ifeq ($(NDK_ROOT),)
+      $(error Android NDK not found. Set ANDROID_NDK environment variable)
+   endif
+
+   # ARM64/AArch64 configuration
+   ifeq ($(arch), arm64)
+      TOOLCHAIN_PREFIX = $(NDK_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-
+      CC = $(TOOLCHAIN_PREFIX)clang
+      CXX = $(TOOLCHAIN_PREFIX)clang++
+      AR = $(NDK_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+   # ARM32/ARMv7 configuration
+   else ifeq ($(arch), arm)
+      TOOLCHAIN_PREFIX = $(NDK_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-
+      CC = $(TOOLCHAIN_PREFIX)clang
+      CXX = $(TOOLCHAIN_PREFIX)clang++
+      AR = $(NDK_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+      CXXFLAGS += -mfloat-abi=softfp -mfpu=neon
+      CFLAGS += -mfloat-abi=softfp -mfpu=neon
+   endif
+
 # Vita
 else ifeq ($(platform), vita)
    TARGET := $(TARGET_NAME)_libretro_$(platform).a
