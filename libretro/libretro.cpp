@@ -648,7 +648,7 @@ static void update_variables(void)
     }
 
     /* Parse S-Pen input mode */
-    var.key="snes9x_spen_input_mode"; 
+    var.key="snes9x_spen_input_mode";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
     {
         if (!strcmp(var.value, "auto"))
@@ -658,6 +658,30 @@ static void update_variables(void)
         else if (!strcmp(var.value, "lightgun"))
             spen_input_mode = 2;
     }
+
+    /* Log S-Pen configuration for hardware testing */
+    #ifdef DEBUG_SPEN_VERBOSE
+    if (log_cb) {
+        const char* tap_actions[] = {"DISABLED", "LEFT_CLICK", "RIGHT_CLICK", "MIDDLE_CLICK", "TRIGGER", "RELOAD"};
+        const char* barrel_actions[] = {"DISABLED", "LEFT_CLICK", "RIGHT_CLICK", "MIDDLE_CLICK", "TRIGGER", "RELOAD"};
+        const char* hover_behaviors[] = {"CURSOR", "ACTIVE_CURSOR", "LIGHTGUN_TRACK", "DISABLED"};
+        const char* coord_modes[] = {"ABSOLUTE", "RELATIVE"};
+        const char* input_modes[] = {"AUTO", "MOUSE", "LIGHTGUN"};
+
+        log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen VERBOSE] === S-PEN CONFIGURATION LOADED ===\n");
+        log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen VERBOSE] Tap Action: %s (%d)\n",
+               (spen_tap_action <= 5) ? tap_actions[spen_tap_action] : "UNKNOWN", spen_tap_action);
+        log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen VERBOSE] Barrel Action: %s (%d)\n",
+               (spen_barrel_action <= 5) ? barrel_actions[spen_barrel_action] : "UNKNOWN", spen_barrel_action);
+        log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen VERBOSE] Hover Behavior: %s (%d)\n",
+               (spen_hover_behavior <= 3) ? hover_behaviors[spen_hover_behavior] : "UNKNOWN", spen_hover_behavior);
+        log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen VERBOSE] Coordinate Mode: %s (%d)\n",
+               (spen_coordinate_mode <= 1) ? coord_modes[spen_coordinate_mode] : "UNKNOWN", spen_coordinate_mode);
+        log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen VERBOSE] Input Mode: %s (%d)\n",
+               (spen_input_mode <= 2) ? input_modes[spen_input_mode] : "UNKNOWN", spen_input_mode);
+        log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen VERBOSE] === END S-PEN CONFIGURATION ===\n");
+    }
+    #endif
 
     var.key="snes9x_superscope_crosshair";
 
@@ -2080,7 +2104,27 @@ static void report_buttons()
                     if (y < 0) y = 0;
                     else if (y >= g_screen_gun_height) y = g_screen_gun_height - 1;
 
-                    /* Minimal debug logging for S-Pen events only */
+                    /* Comprehensive verbose logging for hardware testing */
+                    #ifdef DEBUG_SPEN_VERBOSE
+                    static int log_counter = 0;
+                    static int last_x = -1, last_y = -1;
+                    static bool last_general = false, last_tip = false, last_barrel = false;
+
+                    bool coords_changed = (x != last_x || y != last_y);
+                    bool state_changed = (general_pressed != last_general || tip_pressed != last_tip || barrel_pressed != last_barrel);
+
+                    if (state_changed || coords_changed || (log_counter++ % 60 == 0)) {
+                        if (log_cb) {
+                            log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen VERBOSE] Raw: ptr_x=%d ptr_y=%d | Transformed: x=%d y=%d | States: general=%d tip=%d barrel=%d | Contact=%d | Mode: coord=%d input=%d tap=%d barrel_act=%d hover=%d\n",
+                                   pointer_x, pointer_y, x, y, general_pressed, tip_pressed, barrel_pressed, spen_contact_active,
+                                   spen_coordinate_mode, spen_input_mode, spen_tap_action, spen_barrel_action, spen_hover_behavior);
+                        }
+                        last_x = x; last_y = y;
+                        last_general = general_pressed; last_tip = tip_pressed; last_barrel = barrel_pressed;
+                    }
+                    #endif
+
+                    /* Minimal production logging for key S-Pen events */
                     #ifdef DEBUG_SPEN_INPUT
                     if (spen_contact_active || barrel_pressed) {
                         if (log_cb) {
@@ -2123,12 +2167,28 @@ static void report_buttons()
                             }
                         }
 
-                        /* Hover behavior - coordinate updates happen automatically above */
-                        /* Only log hover when cursor behavior is active */
-                        if (i == MOUSE_LEFT && !spen_contact_active && spen_hover_behavior == SPEN_HOVER_ACTIVE_CURSOR) {
+                        /* Verbose button action logging for hardware testing */
+                        #ifdef DEBUG_SPEN_VERBOSE
+                        static bool last_pressed[MOUSE_LAST + 1] = {false};
+                        if (pressed != last_pressed[i]) {
+                            const char* button_names[] = {"LEFT", "RIGHT", "MIDDLE", "BTN4", "BTN5"};
+                            const char* btn_name = (i <= MOUSE_LAST) ? button_names[i] : "UNKNOWN";
                             if (log_cb) {
-                                log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen] Hover cursor at (%d,%d)\n", x, y);
+                                log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen VERBOSE] Button %s %s - Triggers: general=%d tip=%d barrel=%d | Actions: tap=%d barrel_act=%d\n",
+                                       btn_name, pressed ? "PRESSED" : "RELEASED", general_pressed, tip_pressed, barrel_pressed, spen_tap_action, spen_barrel_action);
                             }
+                            last_pressed[i] = pressed;
+                        }
+                        #endif
+
+                        /* Hover behavior logging */
+                        if (i == MOUSE_LEFT && !spen_contact_active && spen_hover_behavior == SPEN_HOVER_ACTIVE_CURSOR) {
+                            #ifdef DEBUG_SPEN_VERBOSE
+                            static int hover_log_counter = 0;
+                            if (hover_log_counter++ % 30 == 0 && log_cb) {
+                                log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen VERBOSE] Hover cursor active at (%d,%d) - behavior=%d\n", x, y, spen_hover_behavior);
+                            }
+                            #endif
                         }
                         
                         S9xReportButton(MAKE_BUTTON(port + 1, i), pressed);

@@ -300,7 +300,8 @@ else ifeq ($(platform), android)
    TARGET := $(TARGET_NAME)_libretro.so
    fpic := -fPIC
    SHARED := -shared -Wl,--version-script=link.T -Wl,--no-undefined
-   CXXFLAGS += -DANDROID -DARM
+   CXXFLAGS += -DANDROID -DARM -DDEBUG_SPEN_VERBOSE
+   CFLAGS += -DANDROID -DARM
    HAVE_EXCEPTIONS = 1
 
    # Default to ARM64 if no arch specified
@@ -320,6 +321,7 @@ else ifeq ($(platform), android)
       CC = $(TOOLCHAIN_PREFIX)clang
       CXX = $(TOOLCHAIN_PREFIX)clang++
       AR = $(NDK_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+      LIBS += -lz
    # ARM32/ARMv7 configuration
    else ifeq ($(arch), arm)
       TOOLCHAIN_PREFIX = $(NDK_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-
@@ -328,6 +330,7 @@ else ifeq ($(platform), android)
       AR = $(NDK_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
       CXXFLAGS += -mfloat-abi=softfp -mfpu=neon
       CFLAGS += -mfloat-abi=softfp -mfpu=neon
+      LIBS += -lz
    endif
 
 # Vita
