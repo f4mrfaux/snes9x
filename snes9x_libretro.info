@@ -6,7 +6,7 @@ corename = "Snes9x"
 supported_extensions = "smc|sfc|swc|fig|bs|st"
 license = "Non-commercial"
 permissions = ""
-display_version = "1.62.3-spen"
+display_version = "1.62.3-spen-v2"
 
 # Hardware Information
 manufacturer = "Nintendo"
@@ -39,7 +39,7 @@ hw_render = "false"
 needs_fullpath = "false"
 disk_control = "false"
 is_experimental = "false"
-description = "Enhanced with comprehensive S-Pen support for lightgun games with configurable tap, barrel, and hover actions."
+description = "Enhanced with comprehensive S-Pen support for lightgun games with configurable tap, barrel, and hover actions. V2: Fixed semantic pointer mapping and ARM64 compatibility."
 
 # S-Pen Enhancement Details
 # Core Options Added:
@@ -50,9 +50,11 @@ description = "Enhanced with comprehensive S-Pen support for lightgun games with
 # - snes9x_spen_input_mode: Select input detection mode (auto/mouse/lightgun)
 #
 # Features:
-# - Full RetroArch RETRO_DEVICE_POINTER compliance
-# - Virtual pointer system for barrel button detection
-# - Hover support for lightgun tracking
+# - Full RetroArch RETRO_DEVICE_POINTER compliance with semantic indices
+# - Semantic pointer mapping: Index 0 (general), Index 1 (tip), Index 2 (barrel)
+# - Hover support for lightgun tracking and cursor movement
 # - Coordinate system transformation for proper screen mapping
 # - Legacy multi-touch compatibility preserved
 # - Auto-detection of S-Pen vs traditional input
+# - ARM64/AArch64 Android compatibility with NDK r25c build support
+# - Fixed duplicate button mapping and optimized debug logging
