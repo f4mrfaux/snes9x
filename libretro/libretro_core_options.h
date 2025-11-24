@@ -396,6 +396,21 @@ struct retro_core_option_v2_definition option_defs_us[] = {
       "auto"
    },
    {
+      "snes9x_spen_advanced_filtering",
+      "S-Pen Advanced Coordinate Filtering",
+      "Advanced Filtering",
+      "Enhanced coordinate processing with sub-pixel accuracy, noise rejection, and jitter reduction for improved S-Pen tracking precision.",
+      NULL,
+      "input",
+      {
+         { "disabled", "Disabled" },
+         { "basic",    "Basic Smoothing" },
+         { "enhanced", "Enhanced Precision" },
+         { NULL, NULL },
+      },
+      "enhanced"
+   },
+   {
       "snes9x_mouse_mode",
       "SNES Mouse Mode (Legacy Mouse/Touch)",
       "Legacy Mode",

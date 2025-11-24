@@ -6,7 +6,7 @@ corename = "Snes9x"
 supported_extensions = "smc|sfc|swc|fig|bs|st"
 license = "Non-commercial"
 permissions = ""
-display_version = "1.62.3-spen-v2"
+display_version = "1.62.3-spen-v8"
 
 # Hardware Information
 manufacturer = "Nintendo"
@@ -21,7 +21,7 @@ firmware0_opt = "true"
 firmware1_desc = "STBIOS.bin (Sufami Turbo (Japan))"
 firmware1_path = "STBIOS.bin"
 firmware1_opt = "true"
-notes = "(!) BS-X.bin (md5): fed4d8242cfbed61343d53d48432aced|(!) STBIOS.bin (md5): d3a44ba7d42a74d3ac58cb9c14c6a5ca|(!) To start BS-X games from the RPG-like interface, go back into the house and select the 1st option.|(!) S-Pen Enhanced: Supports configurable coordinate modes (absolute/relative) and input modes (auto/mouse/lightgun) with hover support."
+notes = "(!) BS-X.bin (md5): fed4d8242cfbed61343d53d48432aced|(!) STBIOS.bin (md5): d3a44ba7d42a74d3ac58cb9c14c6a5ca|(!) To start BS-X games from the RPG-like interface, go back into the house and select the 1st option.|(!) S-Pen Enhanced V8: Instant cursor response on contact, pressure-based clicks. Configurable coordinate modes (absolute/relative) and input modes (auto/mouse/lightgun) with hover support."
 
 # Libretro Features
 savestate = "true"
@@ -39,7 +39,7 @@ hw_render = "false"
 needs_fullpath = "false"
 disk_control = "false"
 is_experimental = "false"
-description = "Enhanced with comprehensive S-Pen support for lightgun games with configurable tap, barrel, and hover actions. V2: Fixed semantic pointer mapping and ARM64 compatibility."
+description = "Enhanced with comprehensive S-Pen support for lightgun games with configurable tap, barrel, and hover actions. V8: Contact/Click Separation - cursor updates INSTANTLY on contact (distance-based), button presses use pressure sensitivity from RetroArch. Matches natural stylus behavior in native Android apps."
 
 # S-Pen Enhancement Details
 # Core Options Added:
