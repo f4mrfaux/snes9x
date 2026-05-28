@@ -15,6 +15,7 @@
 #include "conffile.h"
 #include "crosshairs.h"
 #include <stdio.h>
+#include <cstdlib>
 #include <vector>
 #include <string>
 
@@ -27,6 +28,7 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include "filter/snes_ntsc.h"
+#include "spen_servo.h"
 
 #define RETRO_DEVICE_JOYPAD_MULTITAP ((1 << 8) | RETRO_DEVICE_JOYPAD)
 #define RETRO_DEVICE_LIGHTGUN_SUPER_SCOPE ((1 << 8) | RETRO_DEVICE_LIGHTGUN)
@@ -210,15 +212,15 @@ static int spen_barrel_action = SNES9X_SPEN_ACTION_RIGHT_CLICK;
 static int spen_hover_behavior = SPEN_HOVER_CURSOR;
 static int spen_coordinate_mode = 0; /* 0=absolute, 1=relative */
 static int spen_input_mode = 0; /* 0=auto, 1=mouse, 2=lightgun */
-static int spen_advanced_filtering = 2; /* 0=disabled, 1=basic, 2=enhanced */
-static int spen_last_valid_x[2] = {0, 0};
-static int spen_last_valid_y[2] = {0, 0};
-static double spen_filtered_x[2] = {0.0, 0.0};
-static double spen_filtered_y[2] = {0.0, 0.0};
-static bool spen_filter_initialized[2] = {false, false};
 static int spen_last_rel_x[2] = {0, 0};
 static int spen_last_rel_y[2] = {0, 0};
 static bool spen_rel_initialized[2] = {false, false};
+static double spen_servo_gain = 1.0;   /* S_assumed (units->px) */
+static double spen_servo_kp   = 1.0;   /* responsiveness; 1.0 = zero-lag */
+static int    spen_servo_deadzone = 2; /* px */
+static double spen_est_x[2] = {0.0, 0.0};
+static double spen_est_y[2] = {0.0, 0.0};
+static bool   spen_servo_initialized[2] = {false, false};
 
 void retro_set_environment(retro_environment_t cb)
 {
@@ -668,16 +670,18 @@ static void update_variables(void)
             spen_input_mode = 2;
     }
 
-    var.key="snes9x_spen_advanced_filtering";
+    /* Parse S-Pen servo parameters */
+    var.key = "snes9x_spen_servo_gain";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-    {
-        if (!strcmp(var.value, "disabled"))
-            spen_advanced_filtering = 0;
-        else if (!strcmp(var.value, "basic"))
-            spen_advanced_filtering = 1;
-        else if (!strcmp(var.value, "enhanced"))
-            spen_advanced_filtering = 2;
-    }
+        spen_servo_gain = atof(var.value);
+
+    var.key = "snes9x_spen_servo_responsiveness";
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+        spen_servo_kp = atof(var.value);
+
+    var.key = "snes9x_spen_servo_deadzone";
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+        spen_servo_deadzone = atoi(var.value);
 
     /* Log S-Pen configuration for hardware testing */
     #ifdef DEBUG_SPEN_VERBOSE
@@ -2105,96 +2109,45 @@ static void report_buttons()
                                       pointer_x != 0 || pointer_y != 0;
 
                 /* LOG POINT 1: Raw input from RetroArch - throttled to reduce spam */
+                #ifdef DEBUG_SPEN_VERBOSE
                 static int log_frame_counter = 0;
                 if (log_cb && (log_frame_counter++ % 60 == 0 || general_pressed || tip_pressed || barrel_pressed)) {
                     log_cb(RETRO_LOG_INFO, "[SPEN-DEBUG-1] RAW INPUT: ptr_x=%d ptr_y=%d count=%d | pressed: gen=%d tip=%d barrel=%d\n",
                            pointer_x, pointer_y, pointer_count, general_pressed, tip_pressed, barrel_pressed);
                 }
+                #endif
 
                 bool has_spen_features = (spen_tap_action != SNES9X_SPEN_ACTION_DISABLED ||
                                           spen_barrel_action != SNES9X_SPEN_ACTION_DISABLED ||
                                           spen_hover_behavior != SPEN_HOVER_DISABLED);
                 bool force_spen_mode = (spen_input_mode == 1);
                 bool stylus_signal = tip_pressed || barrel_pressed;
-                bool hover_signal = (pointer_count > 0) && !general_pressed && (spen_hover_behavior != SPEN_HOVER_DISABLED);
+                bool hover_signal = (pointer_count > 0) && (spen_hover_behavior != SPEN_HOVER_DISABLED);
                 bool is_spen_mode = force_spen_mode ||
                                     (spen_input_mode == 0 && has_spen_features && (stylus_signal || hover_signal));
 
                 /* S-PEN ABSOLUTE MODE */
                 if (is_spen_mode && spen_coordinate_mode == 0 && (pointer_active || force_spen_mode)) {
                     bool any_button_pressed = tip_pressed || general_pressed || barrel_pressed;
+                    (void)any_button_pressed;
 
-                    if (!spen_filter_initialized[port]) {
-                        spen_filter_initialized[port] = true;
-                        spen_last_valid_x[port] = g_screen_gun_width / 2;
-                        spen_last_valid_y[port] = g_screen_gun_height / 2;
-                        spen_filtered_x[port] = (double)spen_last_valid_x[port];
-                        spen_filtered_y[port] = (double)spen_last_valid_y[port];
+                    if (!spen_servo_initialized[port]) {
+                        spen_servo_initialized[port] = true;
+                        spen_est_x[port] = g_screen_gun_width  / 2.0;
+                        spen_est_y[port] = g_screen_gun_height / 2.0;
                     }
 
-                    double screen_width = (double)g_screen_gun_width;
-                    double screen_height = (double)g_screen_gun_height;
+                    /* RetroArch pointer [-32767,+32767] -> absolute game pixels (target). */
+                    double target_x = ((double)pointer_x + 32767.0) * (double)g_screen_gun_width  / 65534.0;
+                    double target_y = ((double)pointer_y + 32767.0) * (double)g_screen_gun_height / 65534.0;
 
-                    if (log_cb && (log_frame_counter % 180 == 0)) {
-                        log_cb(RETRO_LOG_INFO, "[SPEN-DEBUG-2] SCREEN DIMS: width=%d height=%d\n",
-                               g_screen_gun_width, g_screen_gun_height);
-                    }
+                    spen_servo_params sp = { spen_servo_kp, spen_servo_gain, spen_servo_deadzone, 127 };
+                    int step_x = spen_servo_step(target_x, &spen_est_x[port], &sp);
+                    int step_y = spen_servo_step(target_y, &spen_est_y[port], &sp);
 
-                    double screen_x = ((double)pointer_x + 32767.0) * screen_width / 65534.0;
-                    double screen_y = ((double)pointer_y + 32767.0) * screen_height / 65534.0;
-
-                    if (log_cb && (log_frame_counter % 60 == 0 || any_button_pressed)) {
-                        log_cb(RETRO_LOG_INFO, "[SPEN-DEBUG-3] TRANSFORMED: screen_x=%.2f screen_y=%.2f\n",
-                               screen_x, screen_y);
-                    }
-
-                    double final_x = screen_x, final_y = screen_y;
-                    if (spen_advanced_filtering > 0) {
-                        double smoothing_factor = (spen_advanced_filtering == 1)
-                                                  ? (any_button_pressed ? 0.9 : 0.7)
-                                                  : (any_button_pressed ? 0.8 : 0.6);
-
-                        spen_filtered_x[port] = smoothing_factor * screen_x + (1.0 - smoothing_factor) * spen_filtered_x[port];
-                        spen_filtered_y[port] = smoothing_factor * screen_y + (1.0 - smoothing_factor) * spen_filtered_y[port];
-                        final_x = spen_filtered_x[port];
-                        final_y = spen_filtered_y[port];
-
-                        if (log_cb && (log_frame_counter % 60 == 0 || any_button_pressed)) {
-                            log_cb(RETRO_LOG_INFO, "[SPEN-DEBUG-4] SMOOTHING: mode=%d sf=%.2f | filt_x=%.2f filt_y=%.2f | final_x=%.2f final_y=%.2f\n",
-                                   spen_advanced_filtering, smoothing_factor, spen_filtered_x[port], spen_filtered_y[port], final_x, final_y);
-                        }
-                    }
-
-                    int x = (int)(final_x + 0.5);
-                    int y = (int)(final_y + 0.5);
-
-                    if (log_cb && (log_frame_counter % 60 == 0 || any_button_pressed)) {
-                        log_cb(RETRO_LOG_INFO, "[SPEN-DEBUG-5] INT CONVERT: x=%d y=%d (before clamp)\n", x, y);
-                    }
-
-                    int unclamped_x = x, unclamped_y = y;
-                    if (x < 0) x = 0;
-                    else if (x >= g_screen_gun_width) x = g_screen_gun_width - 1;
-                    if (y < 0) y = 0;
-                    else if (y >= g_screen_gun_height) y = g_screen_gun_height - 1;
-
-                    if (log_cb && (log_frame_counter % 60 == 0 || any_button_pressed || unclamped_x != x || unclamped_y != y)) {
-                        log_cb(RETRO_LOG_INFO, "[SPEN-DEBUG-5b] CLAMPED: x=%d y=%d (was %d,%d) | clamp=%d\n",
-                               x, y, unclamped_x, unclamped_y, (unclamped_x != x || unclamped_y != y));
-                    }
-
-                    spen_last_valid_x[port] = x;
-                    spen_last_valid_y[port] = y;
-
-                    snes_mouse_state[port][0] = x;
-                    snes_mouse_state[port][1] = y;
-
-                    if (log_cb && (log_frame_counter % 60 == 0 || any_button_pressed)) {
-                        log_cb(RETRO_LOG_INFO, "[SPEN-DEBUG-6] FINAL TO GAME: snes_mouse_state[%d] = (%d, %d)\n",
-                               port, snes_mouse_state[port][0], snes_mouse_state[port][1]);
-                        log_cb(RETRO_LOG_INFO, "[SPEN-DEBUG-SUMMARY] Port %d: RAW(%d,%d) -> SCREEN(%.2f,%.2f) -> GAME(%d,%d)\n",
-                               port, pointer_x, pointer_y, screen_x, screen_y, x, y);
-                    }
+                    /* Emit relative deltas; S9xReportPointer/UpdatePolledMouse derive the wire delta from cur-old. */
+                    snes_mouse_state[port][0] += step_x;
+                    snes_mouse_state[port][1] += step_y;
 
                     for (int i = MOUSE_LEFT; i <= MOUSE_LAST; i++) {
                         bool pressed = input_state_cb(port, RETRO_DEVICE_MOUSE, 0, i);
@@ -2234,7 +2187,7 @@ static void report_buttons()
                             #ifdef DEBUG_SPEN_VERBOSE
                             static int hover_log_counter = 0;
                             if (hover_log_counter++ % 60 == 0 && log_cb) {
-                                log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen VERBOSE] Hover: Cursor at (%d,%d) no buttons pressed - hover_behavior=%d\n", x, y, spen_hover_behavior);
+                                log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen VERBOSE] Hover: Cursor est at (%d,%d) no buttons pressed - hover_behavior=%d\n", (int)spen_est_x[port], (int)spen_est_y[port], spen_hover_behavior);
                             }
                             #endif
                         }
@@ -2244,6 +2197,7 @@ static void report_buttons()
                 }
                 /* S-PEN RELATIVE MODE */
                 else if (is_spen_mode && spen_coordinate_mode == 1 && (pointer_active || force_spen_mode)) {
+                    spen_servo_initialized[port] = false; /* re-center servo on next absolute session */
                     double screen_width = (double)g_screen_gun_width;
                     double screen_height = (double)g_screen_gun_height;
                     double screen_x = ((double)pointer_x + 32767.0) * screen_width / 65534.0;
@@ -2297,16 +2251,16 @@ static void report_buttons()
                 }
                 /* Legacy absolute mouse (touch) when S-Pen is inactive */
                 else if (setting_mouse_mode == SETTING_MOUSE_MODE_ABSOLUTE && pointer_active) {
-                    int x = ((int)pointer_x + 0x7FFF) * g_screen_gun_width / 0xFFFE;
-                    int y = ((int)pointer_y + 0x7FFF) * g_screen_gun_height / 0xFFFE;
-
-                    if (x < 0) x = 0;
-                    else if (x >= g_screen_gun_width) x = g_screen_gun_width - 1;
-                    if (y < 0) y = 0;
-                    else if (y >= g_screen_gun_height) y = g_screen_gun_height - 1;
-
-                    snes_mouse_state[port][0] = x;
-                    snes_mouse_state[port][1] = y;
+                    if (!spen_servo_initialized[port]) {
+                        spen_servo_initialized[port] = true;
+                        spen_est_x[port] = g_screen_gun_width  / 2.0;
+                        spen_est_y[port] = g_screen_gun_height / 2.0;
+                    }
+                    double tgx = ((double)pointer_x + 0x7FFF) * (double)g_screen_gun_width  / 0xFFFE;
+                    double tgy = ((double)pointer_y + 0x7FFF) * (double)g_screen_gun_height / 0xFFFE;
+                    spen_servo_params sp2 = { spen_servo_kp, spen_servo_gain, spen_servo_deadzone, 127 };
+                    snes_mouse_state[port][0] += spen_servo_step(tgx, &spen_est_x[port], &sp2);
+                    snes_mouse_state[port][1] += spen_servo_step(tgy, &spen_est_y[port], &sp2);
 
                     for (int i = MOUSE_LEFT; i <= MOUSE_LAST; i++) {
                         bool pressed = input_state_cb(port, RETRO_DEVICE_MOUSE, 0, i);
@@ -2317,6 +2271,7 @@ static void report_buttons()
                 }
                 /* Traditional relative mouse */
                 else {
+                    spen_servo_initialized[port] = false; /* re-center servo on next absolute session */
                     _x = input_state_cb(port, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X);
                     _y = input_state_cb(port, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_Y);
                     snes_mouse_state[port][0] += _x;

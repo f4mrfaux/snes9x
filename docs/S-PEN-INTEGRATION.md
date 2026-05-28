@@ -27,7 +27,9 @@ Core Options (SNES9x)
 - `snes9x_spen_hover_behavior`: Visual/logic hint for hover; default Cursor Only. Does not assert PRESSED; hover motion is controlled by RetroArch.
 - `snes9x_spen_coordinate_mode`: Stylus coordinate mode; default Absolute (Relative converts absolute stylus to deltas).
 - `snes9x_spen_input_mode`: Auto/Mouse/Lightgun; default Auto. Auto only activates S-Pen paths when stylus signals are present (tip/barrel/hover).
-- `snes9x_spen_advanced_filtering`: Disabled/Basic/Enhanced smoothing per port.
+- `snes9x_spen_servo_gain`: Servo gain (mouse-units→pixels); default 1.0. Calibrate on hardware so the cursor lands under the pen.
+- `snes9x_spen_servo_responsiveness`: Servo Kp; default 1.0 (zero-lag tracking). Lower smooths a jittery pen at the cost of slight lag.
+- `snes9x_spen_servo_deadzone`: Pixels of error ignored to prevent cursor jitter at rest; default 2.
 
 Expected Behaviors
 - Mario Paint (Mouse):

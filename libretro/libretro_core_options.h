@@ -396,19 +396,55 @@ struct retro_core_option_v2_definition option_defs_us[] = {
       "auto"
    },
    {
-      "snes9x_spen_advanced_filtering",
-      "S-Pen Advanced Coordinate Filtering",
-      "Advanced Filtering",
-      "Enhanced coordinate processing with sub-pixel accuracy, noise rejection, and jitter reduction for improved S-Pen tracking precision.",
+      "snes9x_spen_servo_gain",
+      "S-Pen Servo Gain (units->px)",
+      "Servo Gain",
+      "Calibrate so the cursor lands under the pen; tune on hardware per game.",
       NULL,
       "input",
       {
-         { "disabled", "Disabled" },
-         { "basic",    "Basic Smoothing" },
-         { "enhanced", "Enhanced Precision" },
+         { "0.5",  NULL },
+         { "0.75", NULL },
+         { "1.0",  NULL },
+         { "1.25", NULL },
+         { "1.5",  NULL },
+         { "2.0",  NULL },
          { NULL, NULL },
       },
-      "enhanced"
+      "1.0"
+   },
+   {
+      "snes9x_spen_servo_responsiveness",
+      "S-Pen Servo Responsiveness",
+      "Servo Responsiveness",
+      "1.0 tracks the pen with zero lag; lower smooths a jittery pen at the cost of slight lag.",
+      NULL,
+      "input",
+      {
+         { "0.6", NULL },
+         { "0.8", NULL },
+         { "0.9", NULL },
+         { "1.0", NULL },
+         { NULL, NULL },
+      },
+      "1.0"
+   },
+   {
+      "snes9x_spen_servo_deadzone",
+      "S-Pen Servo Deadzone (px)",
+      "Servo Deadzone",
+      "Pixels of error ignored to prevent cursor jitter at rest.",
+      NULL,
+      "input",
+      {
+         { "0", NULL },
+         { "1", NULL },
+         { "2", NULL },
+         { "3", NULL },
+         { "4", NULL },
+         { NULL, NULL },
+      },
+      "2"
    },
    {
       "snes9x_mouse_mode",
