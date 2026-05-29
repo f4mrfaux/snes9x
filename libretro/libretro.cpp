@@ -30,6 +30,139 @@
 #include "filter/snes_ntsc.h"
 #include "spen_servo.h"
 
+/* --- S-Pen per-game RAM-cursor profile table (compiled-in, no external files) ---
+   The SNES Mouse is RELATIVE, so the absolute-pen servo must dead-reckon the game
+   cursor UNLESS we know exactly where the game stores its real cursor in WRAM. For
+   such games we read that WRAM byte and close the loop (gain-independent, no drift).
+   Keyed on the ROM's internal title prefix (Memory.ROMName, space-padded, uppercase).
+   Addresses are WRAM offsets: $7Exxxx == Memory.RAM[xxxx]. Add entries only after a
+   READ-ONLY RAM search confirms the byte tracks the on-screen cursor on real ROMs. */
+typedef struct { const char *title; uint16_t cur_x_addr; uint16_t cur_y_addr; } spen_mouse_profile_t;
+/* NOTE: the `title` strings below are BEST-GUESS prefixes of each ROM's SNES header
+   internal name (Memory.ROMName). They may need correction: confirm the exact title
+   from the [SPEN-PROFILE] log line on a real load. A wrong title just fails to match
+   and falls back harmlessly to the dead-reckoning servo, so an incorrect guess is safe.
+   "LEMMINGS 2" is listed BEFORE "LEMMINGS" so it is not shadowed by the shorter prefix;
+   the resolver also independently picks the LONGEST matching title for robustness. */
+static const spen_mouse_profile_t SPEN_MOUSE_PROFILES[] = {
+    { "MARIO PAINT",    0x0226, 0x0227 },  /* verified on hardware */
+    { "CLOCK TOWER",    0x017E, 0x017F },  /* auto-found r=1.00 — "CLOCK TOWER SFX" (Deluxe, CRC 08E67AFC) */
+    { "LEMMINGS 2",     0x0C34, 0x0C35 },  /* snes-mouse-lua (USA); title prefix unverified */
+    { "LEMMINGS",       0x0071, 0x0073 },  /* snes-mouse-lua (USA); title prefix unverified */
+    { "SIMCITY",        0x01EB, 0x01ED },  /* snes-mouse-lua (USA); title prefix unverified */
+    { "DUNGEON MASTER", 0x0034, 0x0036 },  /* snes-mouse-lua; title prefix unverified */
+};
+
+/* Resolved per-load: enabled only when the loaded ROM matches a profile above. */
+static bool     spen_ram_cursor_enabled = false;
+static uint16_t spen_ram_cur_x_addr = 0, spen_ram_cur_y_addr = 0;
+
+#ifdef DEBUG_SPEN_VERBOSE
+/* log_cb is defined later in this TU; forward-declare so the finder can log. */
+extern retro_log_printf_t log_cb;
+/* --- WRAM cursor AUTO-FINDER (debug builds, unprofiled games only) ---------------
+   When a game has NO RAM-cursor profile, this correlates every low-WRAM byte against
+   the absolute pen target as the user sweeps the S-Pen, so the byte that holds the
+   game's real cursor (X and Y) reveals itself as the highest |Pearson r|. The found
+   addresses can then be added to SPEN_MOUSE_PROFILES[] above. Read-only; debug only. */
+#define SPEN_FINDER_BYTES   0x2000   /* scan WRAM offsets 0x0000..0x1FFF (8KB) */
+#define SPEN_FINDER_WINDOW  256      /* report every N accumulated samples, then reset */
+typedef struct {
+    double n;
+    double st, sr, str_, st2, sr2;   /* Σt, Σr, Σt·r, Σt², Σr²  (t=target axis, r=RAM byte) */
+    int    rmin, rmax;               /* observed RAM-byte range (skip never-varying bytes) */
+} spen_finder_acc_t;
+
+/* X axis correlates against target_x, Y against target_y. ~8192*2*(5 doubles + ...) */
+static spen_finder_acc_t spen_finder_x[SPEN_FINDER_BYTES];
+static spen_finder_acc_t spen_finder_y[SPEN_FINDER_BYTES];
+static int               spen_finder_samples = 0;
+
+static void spen_finder_reset(void)
+{
+    memset(spen_finder_x, 0, sizeof(spen_finder_x));
+    memset(spen_finder_y, 0, sizeof(spen_finder_y));
+    for (int i = 0; i < SPEN_FINDER_BYTES; i++) {
+        spen_finder_x[i].rmin = spen_finder_y[i].rmin = 255;
+        spen_finder_x[i].rmax = spen_finder_y[i].rmax = 0;
+    }
+    spen_finder_samples = 0;
+}
+
+static void spen_finder_accum_one(spen_finder_acc_t *a, double t, int r)
+{
+    a->n    += 1.0;
+    a->st   += t;
+    a->sr   += (double)r;
+    a->str_ += t * (double)r;
+    a->st2  += t * t;
+    a->sr2  += (double)r * (double)r;
+    if (r < a->rmin) a->rmin = r;
+    if (r > a->rmax) a->rmax = r;
+}
+
+static double spen_finder_pearson(const spen_finder_acc_t *a)
+{
+    if (a->n < 2.0) return 0.0;
+    double num = a->n * a->str_ - a->st * a->sr;
+    double dt  = a->n * a->st2  - a->st * a->st;
+    double dr  = a->n * a->sr2  - a->sr * a->sr;
+    if (dt <= 0.0 || dr <= 0.0) return 0.0;   /* one axis never varied => no correlation */
+    return num / sqrt(dt * dr);
+}
+
+/* Find the top-3 |r| byte offsets in one axis' accumulator set. */
+static void spen_finder_top3(const spen_finder_acc_t *set, int *off, double *r)
+{
+    off[0] = off[1] = off[2] = -1;
+    r[0] = r[1] = r[2] = 0.0;
+    for (int i = 0; i < SPEN_FINDER_BYTES; i++) {
+        if (set[i].rmax <= set[i].rmin) continue;   /* byte never changed */
+        double rv = spen_finder_pearson(&set[i]);
+        double a  = rv < 0.0 ? -rv : rv;
+        if (a > (r[0] < 0.0 ? -r[0] : r[0])) {
+            off[2] = off[1]; r[2] = r[1];
+            off[1] = off[0]; r[1] = r[0];
+            off[0] = i;      r[0] = rv;
+        } else if (a > (r[1] < 0.0 ? -r[1] : r[1])) {
+            off[2] = off[1]; r[2] = r[1];
+            off[1] = i;      r[1] = rv;
+        } else if (a > (r[2] < 0.0 ? -r[2] : r[2])) {
+            off[2] = i;      r[2] = rv;
+        }
+    }
+}
+
+/* Accumulate one frame's (target_x, target_y) against all scanned WRAM bytes, then
+   every SPEN_FINDER_WINDOW samples log the best cursor-address candidates and reset. */
+static void spen_finder_update(double target_x, double target_y)
+{
+    for (int off = 0; off < SPEN_FINDER_BYTES; off++) {
+        int r = (int)Memory.RAM[off];
+        spen_finder_accum_one(&spen_finder_x[off], target_x, r);
+        spen_finder_accum_one(&spen_finder_y[off], target_y, r);
+    }
+    if (++spen_finder_samples >= SPEN_FINDER_WINDOW) {
+        int    xo[3], yo[3];
+        double xr[3], yr[3];
+        spen_finder_top3(spen_finder_x, xo, xr);
+        spen_finder_top3(spen_finder_y, yo, yr);
+        if (log_cb) {
+            log_cb(RETRO_LOG_INFO,
+                "[SPEN-FINDER] ROM='%.21s' Xcand: $%04X(r=%.2f,%d-%d) $%04X(r=%.2f,%d-%d) $%04X(r=%.2f,%d-%d) | Ycand: $%04X(r=%.2f,%d-%d) $%04X(r=%.2f,%d-%d) $%04X(r=%.2f,%d-%d)\n",
+                Memory.ROMName,
+                xo[0] < 0 ? 0 : xo[0], xr[0], xo[0] < 0 ? 0 : spen_finder_x[xo[0]].rmin, xo[0] < 0 ? 0 : spen_finder_x[xo[0]].rmax,
+                xo[1] < 0 ? 0 : xo[1], xr[1], xo[1] < 0 ? 0 : spen_finder_x[xo[1]].rmin, xo[1] < 0 ? 0 : spen_finder_x[xo[1]].rmax,
+                xo[2] < 0 ? 0 : xo[2], xr[2], xo[2] < 0 ? 0 : spen_finder_x[xo[2]].rmin, xo[2] < 0 ? 0 : spen_finder_x[xo[2]].rmax,
+                yo[0] < 0 ? 0 : yo[0], yr[0], yo[0] < 0 ? 0 : spen_finder_y[yo[0]].rmin, yo[0] < 0 ? 0 : spen_finder_y[yo[0]].rmax,
+                yo[1] < 0 ? 0 : yo[1], yr[1], yo[1] < 0 ? 0 : spen_finder_y[yo[1]].rmin, yo[1] < 0 ? 0 : spen_finder_y[yo[1]].rmax,
+                yo[2] < 0 ? 0 : yo[2], yr[2], yo[2] < 0 ? 0 : spen_finder_y[yo[2]].rmin, yo[2] < 0 ? 0 : spen_finder_y[yo[2]].rmax);
+        }
+        spen_finder_reset();
+    }
+}
+#endif /* DEBUG_SPEN_VERBOSE */
+
 #define RETRO_DEVICE_JOYPAD_MULTITAP ((1 << 8) | RETRO_DEVICE_JOYPAD)
 #define RETRO_DEVICE_LIGHTGUN_SUPER_SCOPE ((1 << 8) | RETRO_DEVICE_LIGHTGUN)
 #define RETRO_DEVICE_LIGHTGUN_JUSTIFIER ((2 << 8) | RETRO_DEVICE_LIGHTGUN)
@@ -1347,6 +1480,11 @@ bool retro_load_game(const struct retro_game_info *game)
 
     update_variables();
 
+    /* Re-evaluate the S-Pen RAM-cursor profile for every load (game may have changed). */
+    spen_ram_cursor_enabled = false;
+    spen_ram_cur_x_addr     = 0;
+    spen_ram_cur_y_addr     = 0;
+
     if(game->data == NULL && game->size == 0 && game->path != NULL)
         rom_loaded = Memory.LoadROM(game->path);
     else
@@ -1396,6 +1534,29 @@ bool retro_load_game(const struct retro_game_info *game)
             for(int lcv = 0; lcv < sizeof(Memory.RAM); lcv++)
                 Memory.RAM[lcv] = rand() % 256;
         }
+
+        /* Resolve the per-game S-Pen RAM-cursor profile now that Memory.ROMName /
+           Memory.ROMCRC32 are valid. Match on internal-title prefix (case/space-padded).
+           Pick the LONGEST matching title so a specific game ("LEMMINGS 2") is not
+           shadowed by a shorter prefix of another ("LEMMINGS"), independent of table order. */
+        size_t best_len = 0;
+        for (size_t i = 0; i < sizeof(SPEN_MOUSE_PROFILES) / sizeof(SPEN_MOUSE_PROFILES[0]); i++)
+        {
+            const spen_mouse_profile_t *p = &SPEN_MOUSE_PROFILES[i];
+            size_t tlen = strlen(p->title);
+            if (tlen > best_len && strncmp(Memory.ROMName, p->title, tlen) == 0)
+            {
+                best_len                = tlen;
+                spen_ram_cursor_enabled = true;
+                spen_ram_cur_x_addr     = p->cur_x_addr;
+                spen_ram_cur_y_addr     = p->cur_y_addr;
+            }
+        }
+
+        if (log_cb)
+            log_cb(RETRO_LOG_INFO, "[SPEN-PROFILE] ROM='%.21s' CRC=%08X -> RAM-cursor %s (x=$%04X y=$%04X)\n",
+                   Memory.ROMName, (unsigned)Memory.ROMCRC32,
+                   spen_ram_cursor_enabled ? "ON" : "off(fallback)", spen_ram_cur_x_addr, spen_ram_cur_y_addr);
     }
 
     if (!rom_loaded && log_cb)
@@ -2105,8 +2266,15 @@ static void report_buttons()
                 bool tip_pressed = input_state_cb(port, RETRO_DEVICE_POINTER, 1, RETRO_DEVICE_ID_POINTER_PRESSED);
                 bool barrel_pressed = input_state_cb(port, RETRO_DEVICE_POINTER, 2, RETRO_DEVICE_ID_POINTER_PRESSED);
                 int pointer_count = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_COUNT);
-                bool pointer_active = pointer_count > 0 || general_pressed || tip_pressed || barrel_pressed ||
-                                      pointer_x != 0 || pointer_y != 0;
+                /* RetroArch delivers HOVER as updated POINTER_X/Y with COUNT=0 and PRESSED=false
+                   (the X/Y query is count-independent). So detect the pen by a CHANGE in coords,
+                   NOT by count>0 (misses hover) and NOT by coords!=0 (creeps on stale lifted coords).
+                   coords_changed => pen is actively hovering or moving; static coords => pen away. */
+                static int16_t spen_last_px[2] = {0, 0}, spen_last_py[2] = {0, 0};
+                bool coords_changed = (pointer_x != spen_last_px[port] || pointer_y != spen_last_py[port]);
+                spen_last_px[port] = pointer_x;
+                spen_last_py[port] = pointer_y;
+                bool pointer_active = pointer_count > 0 || general_pressed || tip_pressed || barrel_pressed || coords_changed;
 
                 /* LOG POINT 1: Raw input from RetroArch - throttled to reduce spam */
                 #ifdef DEBUG_SPEN_VERBOSE
@@ -2122,7 +2290,7 @@ static void report_buttons()
                                           spen_hover_behavior != SPEN_HOVER_DISABLED);
                 bool force_spen_mode = (spen_input_mode == 1);
                 bool stylus_signal = tip_pressed || barrel_pressed;
-                bool hover_signal = (pointer_count > 0) && (spen_hover_behavior != SPEN_HOVER_DISABLED);
+                bool hover_signal = (pointer_count > 0 || coords_changed) && (spen_hover_behavior != SPEN_HOVER_DISABLED);
                 bool is_spen_mode = force_spen_mode ||
                                     (spen_input_mode == 0 && has_spen_features && (stylus_signal || hover_signal));
 
@@ -2141,13 +2309,72 @@ static void report_buttons()
                     double target_x = ((double)pointer_x + 32767.0) * (double)g_screen_gun_width  / 65534.0;
                     double target_y = ((double)pointer_y + 32767.0) * (double)g_screen_gun_height / 65534.0;
 
-                    spen_servo_params sp = { spen_servo_kp, spen_servo_gain, spen_servo_deadzone, 127 };
-                    int step_x = spen_servo_step(target_x, &spen_est_x[port], &sp);
-                    int step_y = spen_servo_step(target_y, &spen_est_y[port], &sp);
+                    int step_x = 0, step_y = 0;
+                    if (spen_ram_cursor_enabled) {
+                        /* RAM-FEEDBACK servo (known mouse game, e.g. Mario Paint): read the game's
+                           REAL cursor from WRAM ($7Exxxx == Memory.RAM[xxxx], addresses from the
+                           per-ROM profile table) and drive it toward the pen target with a damped,
+                           clamped delta. Closed-loop => gain-independent, no dead-reckoning drift,
+                           self-recovers after lifts/edges. The game's own canvas clamp handles
+                           out-of-canvas pen positions. */
+                        int actual_x = (int)Memory.RAM[spen_ram_cur_x_addr];
+                        int actual_y = (int)Memory.RAM[spen_ram_cur_y_addr];
+                        int err_x = (int)(target_x + 0.5) - actual_x;
+                        int err_y = (int)(target_y + 0.5) - actual_y;
+                        double kp = (spen_servo_kp > 0.05) ? spen_servo_kp : 0.5; /* responsiveness; ~0.5 stable */
+                        step_x = (int)(kp * err_x + (err_x >= 0 ? 0.5 : -0.5));
+                        step_y = (int)(kp * err_y + (err_y >= 0 ? 0.5 : -0.5));
+                        const int MAXSTEP = 24; /* cap per-frame delta to avoid overshoot at unknown game gain */
+                        if (step_x >  MAXSTEP) step_x =  MAXSTEP; else if (step_x < -MAXSTEP) step_x = -MAXSTEP;
+                        if (step_y >  MAXSTEP) step_y =  MAXSTEP; else if (step_y < -MAXSTEP) step_y = -MAXSTEP;
+                        if (err_x == 0) step_x = 0;
+                        if (err_y == 0) step_y = 0;
+                        spen_est_x[port] = (double)actual_x; /* est := real cursor (for the trace) */
+                        spen_est_y[port] = (double)actual_y;
+                    } else {
+                        /* DEAD-RECKONING fallback (unknown game): we cannot read its cursor RAM, so
+                           the servo integrates its own estimate toward the absolute pen target and
+                           emits a clamped delta. Drifts on blind moves but is safe for any ROM. */
+                        spen_servo_params sp = { spen_servo_kp, spen_servo_gain, spen_servo_deadzone, 127 };
+                        step_x = spen_servo_step(target_x, &spen_est_x[port], &sp);
+                        step_y = spen_servo_step(target_y, &spen_est_y[port], &sp);
+
+                        #ifdef DEBUG_SPEN_VERBOSE
+                        /* WRAM cursor AUTO-FINDER: only for unprofiled games (this branch), only
+                           accumulate when the pen is actively moving (target changed since last
+                           frame) so static-hover frames don't dilute the correlation. Port 0 only
+                           (single accumulator set). */
+                        if (port == 0) {
+                            static double spen_finder_last_tx = -1e9, spen_finder_last_ty = -1e9;
+                            bool tgt_moved = (fabs(target_x - spen_finder_last_tx) >= 1.0 ||
+                                              fabs(target_y - spen_finder_last_ty) >= 1.0);
+                            if (tgt_moved) {
+                                spen_finder_update(target_x, target_y);
+                                spen_finder_last_tx = target_x;
+                                spen_finder_last_ty = target_y;
+                            }
+                        }
+                        #endif
+                    }
 
                     /* Emit relative deltas; S9xReportPointer/UpdatePolledMouse derive the wire delta from cur-old. */
                     snes_mouse_state[port][0] += step_x;
                     snes_mouse_state[port][1] += step_y;
+
+                    #ifdef DEBUG_SPEN_VERBOSE
+                    if (log_cb && (log_frame_counter % 30 == 0 || tip_pressed)) {
+                        log_cb(RETRO_LOG_INFO, "[SPEN-SERVO] raw=(%d,%d) tgt=(%.1f,%.1f) est=(%.1f,%.1f) step=(%d,%d) acc=(%d,%d) gain=%.2f kp=%.2f\n",
+                               pointer_x, pointer_y, target_x, target_y, spen_est_x[port], spen_est_y[port],
+                               step_x, step_y, snes_mouse_state[port][0], snes_mouse_state[port][1], spen_servo_gain, spen_servo_kp);
+                        /* READ-ONLY RAM probe: which WRAM byte tracks the pen target? (candidate
+                           Mario Paint cursor addresses). $7Exxxx == Memory.RAM[xxxx]. */
+                        log_cb(RETRO_LOG_INFO, "[SPEN-RAM] tgt=(%.0f,%.0f) | 0226=%u 0227=%u | 04DC=%u 04DE=%u | tool0426=%u\n",
+                               target_x, target_y,
+                               (unsigned)Memory.RAM[0x0226], (unsigned)Memory.RAM[0x0227],
+                               (unsigned)Memory.RAM[0x04DC], (unsigned)Memory.RAM[0x04DE],
+                               (unsigned)Memory.RAM[0x0426]);
+                    }
+                    #endif
 
                     for (int i = MOUSE_LEFT; i <= MOUSE_LAST; i++) {
                         bool pressed = input_state_cb(port, RETRO_DEVICE_MOUSE, 0, i);
@@ -2197,7 +2424,6 @@ static void report_buttons()
                 }
                 /* S-PEN RELATIVE MODE */
                 else if (is_spen_mode && spen_coordinate_mode == 1 && (pointer_active || force_spen_mode)) {
-                    spen_servo_initialized[port] = false; /* re-center servo on next absolute session */
                     double screen_width = (double)g_screen_gun_width;
                     double screen_height = (double)g_screen_gun_height;
                     double screen_x = ((double)pointer_x + 32767.0) * screen_width / 65534.0;
@@ -2271,7 +2497,7 @@ static void report_buttons()
                 }
                 /* Traditional relative mouse */
                 else {
-                    spen_servo_initialized[port] = false; /* re-center servo on next absolute session */
+                    /* pen away / non-stylus: emit real mouse deltas (0 for stylus), keep servo est frozen */
                     _x = input_state_cb(port, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X);
                     _y = input_state_cb(port, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_Y);
                     snes_mouse_state[port][0] += _x;
