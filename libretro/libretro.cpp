@@ -45,8 +45,17 @@ typedef struct { const char *title; uint16_t cur_x_addr; uint16_t cur_y_addr; } 
    "LEMMINGS 2" is listed BEFORE "LEMMINGS" so it is not shadowed by the shorter prefix;
    the resolver also independently picks the LONGEST matching title for robustness. */
 static const spen_mouse_profile_t SPEN_MOUSE_PROFILES[] = {
-    { "MARIO PAINT",    0x0226, 0x0227 },  /* verified on hardware */
-    { "CLOCK TOWER",    0x017E, 0x017F },  /* auto-found r=1.00 — "CLOCK TOWER SFX" (Deluxe, CRC 08E67AFC) */
+    { "MARIO PAINT",    0x0226, 0x0227 },  /* USA dumps with internal name "MARIO PAINT" */
+    { "MARIOPAINT",     0x0226, 0x0227 },  /* Europe dumps (CRC 266B220E etc) — ROM name has no space */
+    /* CLOCK TOWER ($017E/$017F) intentionally disabled: those bytes correlate
+     * with mouse motion in the T-En patched Deluxe ROM (CRC 08E67AFC) but are
+     * a motion-responsive scratch buffer, not the rendered cursor. With this
+     * profile active, RAM-feedback steers the wrong bytes and the visible
+     * cursor doesn't follow the pen. Dead-reckoning + corner-park alignment
+     * tracks the visible cursor correctly. Re-add via a CRC-keyed entry once
+     * a longer auto-finder sweep (or external memwatch) names the real
+     * render-cursor address. */
+    /* { "CLOCK TOWER",    0x017E, 0x017F }, */
     { "LEMMINGS 2",     0x0C34, 0x0C35 },  /* snes-mouse-lua (USA); title prefix unverified */
     { "LEMMINGS",       0x0071, 0x0073 },  /* snes-mouse-lua (USA); title prefix unverified */
     { "SIMCITY",        0x01EB, 0x01ED },  /* snes-mouse-lua (USA); title prefix unverified */
@@ -2379,6 +2388,12 @@ static void report_buttons()
                     for (int i = MOUSE_LEFT; i <= MOUSE_LAST; i++) {
                         bool pressed = input_state_cb(port, RETRO_DEVICE_MOUSE, 0, i);
 
+                        /* Hold MOUSE_LEFT while the pen is in proximity. Many SNES Mouse
+                         * games (Mario Paint, Clock Tower) only update the rendered cursor
+                         * when a button is held — without this they'd freeze on hover.
+                         * Trade-off: canvas-paint games will draw on hover. Tap-to-click
+                         * games still work because tip_pressed is what registers as the
+                         * intentional click event. */
                         if (i == MOUSE_LEFT && general_pressed)
                             pressed = true;
 
