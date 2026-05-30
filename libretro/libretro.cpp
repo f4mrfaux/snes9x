@@ -47,15 +47,14 @@ typedef struct { const char *title; uint16_t cur_x_addr; uint16_t cur_y_addr; } 
 static const spen_mouse_profile_t SPEN_MOUSE_PROFILES[] = {
     { "MARIO PAINT",    0x0226, 0x0227 },  /* USA dumps with internal name "MARIO PAINT" */
     { "MARIOPAINT",     0x0226, 0x0227 },  /* Europe dumps (CRC 266B220E etc) — ROM name has no space */
-    /* CLOCK TOWER ($017E/$017F) intentionally disabled: those bytes correlate
-     * with mouse motion in the T-En patched Deluxe ROM (CRC 08E67AFC) but are
-     * a motion-responsive scratch buffer, not the rendered cursor. With this
-     * profile active, RAM-feedback steers the wrong bytes and the visible
-     * cursor doesn't follow the pen. Dead-reckoning + corner-park alignment
-     * tracks the visible cursor correctly. Re-add via a CRC-keyed entry once
-     * a longer auto-finder sweep (or external memwatch) names the real
-     * render-cursor address. */
-    /* { "CLOCK TOWER",    0x017E, 0x017F }, */
+    /* CLOCK TOWER SFX (T-En patched Deluxe, CRC 08E67AFC): auto-finder
+     * confirms $017F r=0.96 for Y (top candidate) and $017E r=0.79 for X
+     * (top X candidate). Closed-loop RAM-feedback eliminates the dead-
+     * reckoning "trailing cursor" drift the user was seeing — without
+     * the profile, the deadzone gating freezes the wire delta when the
+     * pen moves slowly, and the cursor lags behind. Verified on
+     * hardware (Z Fold 5, 2026-05-29). */
+    { "CLOCK TOWER",    0x017E, 0x017F },
     { "LEMMINGS 2",     0x0C34, 0x0C35 },  /* snes-mouse-lua (USA); title prefix unverified */
     { "LEMMINGS",       0x0071, 0x0073 },  /* snes-mouse-lua (USA); title prefix unverified */
     { "SIMCITY",        0x01EB, 0x01ED },  /* snes-mouse-lua (USA); title prefix unverified */
