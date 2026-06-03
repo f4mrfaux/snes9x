@@ -1981,7 +1981,17 @@ static void map_buttons()
     MAP_BUTTON(MAKE_BUTTON(PAD_8, BTN_DOWN), "Joypad8 Down");
 }
 
-static int16_t snes_mouse_state[2][2] = {{0}, {0}};
+/* Promoted to int32_t to prevent overflow during long sessions: the servo
+ * accumulates per-frame steps and would wrap an int16_t after ~32s of sustained
+ * fast motion, producing catastrophic jumps. The SNES Mouse layer in
+ * controls.cpp stores cur_x/old_x as int16 and computes the per-frame delta as
+ * (cur_x - old_x) clamped to +-127; int16 wraparound preserves that delta
+ * correctly as long as the real per-frame delta fits in int16, so casting to
+ * int16_t at the S9xReportPointer boundary is sufficient and safe. We must NOT
+ * reset the accumulator after a report: controls.cpp tracks old_x as the last
+ * reported cumulative value, so the accumulator must continue carrying the
+ * total to keep delta = step_x each frame. */
+static int32_t snes_mouse_state[2][2] = {{0}, {0}};
 static bool snes_superscope_turbo_latch = false;
 
 static void input_report_gun_position( unsigned port, int s9xinput )
@@ -2023,16 +2033,18 @@ static void input_handle_pointer_lightgun( unsigned port, unsigned gun_device, i
     bool tip_pressed    = input_state_cb(port, RETRO_DEVICE_POINTER, 1, RETRO_DEVICE_ID_POINTER_PRESSED);
     bool barrel_pressed = input_state_cb(port, RETRO_DEVICE_POINTER, 2, RETRO_DEVICE_ID_POINTER_PRESSED);
     
-    /* Debug: Always log pointer state to understand what RetroArch provides */
+#ifdef DEBUG_SPEN_VERBOSE
+    /* Debug: log pointer state to understand what RetroArch provides */
     if (port == 0) {
         static int log_counter = 0;
         if (log_counter++ % 60 == 0) { /* Log every ~1 second at 60fps */
             fprintf(stderr, "[SNES9X Debug] Pointer: x=%d y=%d pressed=%d tip=%d barrel=%d\n", pointer_x, pointer_y, pointer_is_pressed, tip_pressed, barrel_pressed);
             if (log_cb) {
-                log_cb(RETRO_LOG_ERROR, "[SNES9X Debug] Pointer: x=%d y=%d pressed=%d tip=%d barrel=%d\n", pointer_x, pointer_y, pointer_is_pressed, tip_pressed, barrel_pressed);
+                log_cb(RETRO_LOG_INFO, "[SNES9X Debug] Pointer: x=%d y=%d pressed=%d tip=%d barrel=%d\n", pointer_x, pointer_y, pointer_is_pressed, tip_pressed, barrel_pressed);
             }
         }
     }
+#endif
 
 	/* Matrix-based coordinate transformation consistent with S-Pen mouse mode */
 	/* Convert libretro lightgun coordinates to normalized device coordinates */
@@ -2141,13 +2153,15 @@ static void input_handle_pointer_lightgun( unsigned port, unsigned gun_device, i
             /* Hover detection: stylus present but not touching */
             bool hover_detected  = !pointer_is_pressed && (spen_hover_behavior != SPEN_HOVER_DISABLED);
             
+#ifdef DEBUG_SPEN_VERBOSE
             /* Debug logging for S-Pen events */
             if (log_cb) {
                 if (hover_detected || tap_detected || barrel_detected) {
-                    log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen] Lightgun: hover=%d tap=%d barrel=%d coords=(%d,%d)\n", 
+                    log_cb(RETRO_LOG_INFO, "[SNES9X S-Pen] Lightgun: hover=%d tap=%d barrel=%d coords=(%d,%d)\n",
                            hover_detected, tap_detected, barrel_detected, x, y);
                 }
             }
+#endif
             
             if (tap_detected && spen_tap_action != SNES9X_SPEN_ACTION_DISABLED) {
                 switch (spen_tap_action) {
@@ -2519,7 +2533,15 @@ static void report_buttons()
                     for (int i = MOUSE_LEFT; i <= MOUSE_LAST; i++)
                         S9xReportButton(MAKE_BUTTON(port + 1, i), input_state_cb(port, RETRO_DEVICE_MOUSE, 0, i));
                 }
-                S9xReportPointer(BTN_POINTER + port, snes_mouse_state[port][0], snes_mouse_state[port][1]);
+                /* int32 -> int16 truncation here is intentional and safe: see the
+                 * comment on snes_mouse_state. controls.cpp computes the wire delta
+                 * as (cur_x - old_x) in int16 arithmetic, which two's-complement
+                 * wraparound makes equivalent to the true mathematical delta as
+                 * long as the per-frame delta itself fits in int16 (we clamp servo
+                 * steps to +-127). */
+                S9xReportPointer(BTN_POINTER + port,
+                                 (int16_t)snes_mouse_state[port][0],
+                                 (int16_t)snes_mouse_state[port][1]);
             }
                 break;
 
